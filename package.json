@@ -1,0 +1,39 @@
+{
+  "name": "electronwmd",
+  "version": "0.1.0-0.2.6",
+  "description": "Electron version of WebMinidisc",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "./build-renderer.sh && tsc && (rm dist/wmd/node-encrypt-worker.js; ln -rs node_modules/netmd-js/dist/node-encrypt-worker.js dist/wmd/)",
+    "start": "npm run build && electron ./dist/main.js",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder -wl"
+  },
+  "build":{
+    "directories":{
+      "output": "build",
+      "buildResources": "res"
+    },
+    "files":[
+      "node_modules",
+      "dist",
+      "renderer",
+      "res"
+    ]
+  },
+  "author": "asivery",
+  "private": true,
+  "dependencies": {
+    "@types/electron": "^1.6.10",
+    "async-mutex": "^0.3.2",
+    "jconv": "^0.1.5",
+    "netmd-js": "^2.0.1",
+    "typescript": "^4.3.5",
+    "webusb": "^2.2.0"
+  },
+  "devDependencies": {
+    "electron": "13.1.8",
+    "electron-builder": "^22.11.7"
+  }
+  
+}

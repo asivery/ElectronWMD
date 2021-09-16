@@ -1,0 +1,15 @@
+{
+    "compilerOptions": {
+      "target": "es5",
+      "noImplicitAny": true,
+      "sourceMap": true,
+      "esModuleInterop": true,
+      "outDir": "dist",
+      "experimentalDecorators": true,
+      "jsx": "react",
+      "downlevelIteration": true,
+    },
+    "include": [
+      "src"
+    ],
+}
