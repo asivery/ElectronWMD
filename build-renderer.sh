@@ -6,7 +6,7 @@ fi
 
 rm -rf webminidisc
 
-git clone https://github.com/cybercase/webminidisc
+git clone https://github.com/asivery/webminidisc
 cd webminidisc
 npm i
 PUBLIC_URL="sandbox://" REACT_APP_NO_GA_RELEASE="true" npm run build; rm -rf ../renderer; cp -rv build ../renderer
