@@ -25,12 +25,7 @@ import {
                     args[i] = { interprocessType: "function" };
                 }
             }
-
-            return new Promise(async (res, err) => ipcRenderer.invoke(name, ...args).then((...rargs) => {
-                registeredForThis.forEach(n => delete callbacks[n]);
-                //Remove all the callbacks first
-                res(...rargs);
-            }).catch(err));
+            return ipcRenderer.invoke(name, ...args);
         }
         console.log(`Registering invoker for #${i++}(${name})`);
     }

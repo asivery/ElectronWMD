@@ -1,13 +1,14 @@
 {
   "name": "electronwmd",
-  "version": "0.1.1-0.2.7",
+  "version": "0.1.2-0.2.7",
   "description": "Electron version of WebMinidisc",
   "main": "dist/main.js",
   "scripts": {
     "build": "./build-renderer.sh && tsc",
     "start": "npm run build && NODE_ENV=development electron ./dist/main.js",
     "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder -wl --x64 && electron-builder -w --ia32"
+    "dist": "npm run build && electron-builder -wl --x64 && electron-builder -w --ia32",
+    "dist-mac": "npm run build && electron-builder -m"
   },
   "build":{
     "directories":{
