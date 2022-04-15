@@ -1,7 +1,7 @@
 {
   "name": "electronwmd",
-  "version": "0.1.2-0.2.7",
-  "description": "Electron version of WebMinidisc",
+  "version": "0.1.3-1.1.1",
+  "description": "Electron version of WebMinidisc Pro",
   "main": "dist/main.js",
   "scripts": {
     "build": "./build-renderer.sh && tsc",
@@ -10,8 +10,8 @@
     "dist": "npm run build && electron-builder -wl --x64 && electron-builder -w --ia32",
     "dist-mac": "npm run build && electron-builder -m"
   },
-  "build":{
-    "directories":{
+  "build": {
+    "directories": {
       "output": "build",
       "buildResources": "res"
     },
@@ -24,12 +24,12 @@
       "./node_modules/jconv/**/*"
     ],
     "win": {
-	    "icon": "./res/icon.ico"
+      "icon": "./res/icon.ico"
     },
     "linux": {
-	    "icon": "./res/icon.png"
+      "icon": "./res/icon.png"
     },
-    "files":[
+    "files": [
       "node_modules",
       "dist",
       "renderer",
@@ -42,7 +42,7 @@
     "@types/electron": "^1.6.10",
     "async-mutex": "^0.3.2",
     "jconv": "^0.1.5",
-    "netmd-js": "^2.0.1",
+    "netmd-js": "^3.2.3",
     "typescript": "^4.3.5",
     "webusb": "^2.2.0"
   },
@@ -50,5 +50,4 @@
     "electron": "13.1.8",
     "electron-builder": "^22.11.7"
   }
-  
 }

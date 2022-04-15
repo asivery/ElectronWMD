@@ -10,24 +10,33 @@ import {
     getDeviceStatus,
     DeviceStatus,
     Group,
+    renameDisc,
+    DiscFormat,
+    upload,
+    rewriteDiscGroups,
+    DiscFlag,
 } from 'netmd-js';
 import { makeGetAsyncPacketIteratorOnWorkerThread } from 'netmd-js/dist/node-encrypt-worker';
 import { Worker } from 'worker_threads';
 import { Logger } from 'netmd-js/dist/logger';
 import path from 'path';
-import {
-    asyncMutex,
-    sanitizeHalfWidthTitle,
-    sanitizeFullWidthTitle,
-    sleep,
-    isSequential,
-    compileDiscTitles,
-    recomputeGroupsAfterTrackMove,
-} from './utils';
+
+import { sanitizeHalfWidthTitle, sanitizeFullWidthTitle } from 'netmd-js/dist/utils';
+import { asyncMutex, sleep, isSequential, recomputeGroupsAfterTrackMove } from './utils';
 import { Mutex } from 'async-mutex';
+
+export enum Capability {
+    contentList,
+    playbackControl,
+    metadataEdit,
+    trackUpload,
+    trackDownload,
+    discEject,
+}
 
 export interface NetMDService {
     mutex: Mutex;
+    getServiceCapabilities(): Promise<Capability[]>;
     getDeviceStatus(): Promise<DeviceStatus>;
     pair(): Promise<boolean>;
     connect(): Promise<boolean>;
@@ -43,6 +52,7 @@ export interface NetMDService {
     deleteTracks(indexes: number[]): Promise<void>;
     moveTrack(src: number, dst: number, updateGroups?: boolean): Promise<void>;
     wipeDisc(): Promise<void>;
+    ejectDisc(): Promise<void>;
     wipeDiscTitleInfo(): Promise<void>;
     upload(
         title: string,
@@ -51,13 +61,17 @@ export interface NetMDService {
         format: Wireformat,
         progressCallback: (progress: { written: number; encrypted: number; total: number }) => void
     ): Promise<void>;
-
+    download(
+        index: number,
+        progressCallback: (progress: { read: number; total: number }) => void
+    ): Promise<{ format: DiscFormat; data: Uint8Array } | null>;
     play(): Promise<void>;
     pause(): Promise<void>;
     stop(): Promise<void>;
     next(): Promise<void>;
     prev(): Promise<void>;
     gotoTrack(index: number): Promise<void>;
+    gotoTime(index: number, hour: number, minute: number, second: number, frame: number): Promise<void>;
     getPosition(): Promise<number[] | null>;
 }
 
@@ -86,13 +100,23 @@ export class NetMDUSBService implements NetMDService {
         }
     }
 
-    private async writeRawTitles(titleObject: { newRawTitle: string; newRawFullWidthTitle: string } | null) {
-        if (titleObject === null) return;
-        await this.netmdInterface!.cacheTOC();
-        await this.netmdInterface!.setDiscTitle(sanitizeHalfWidthTitle(titleObject.newRawTitle));
-        await this.netmdInterface!.setDiscTitle(sanitizeFullWidthTitle(titleObject.newRawFullWidthTitle), true);
-        await this.netmdInterface!.syncTOC();
-        this.dropCachedContentList();
+    @asyncMutex
+    async getServiceCapabilities() {
+        const basic = [Capability.contentList, Capability.playbackControl];
+        if (this.netmdInterface?.netMd.getVendor() === 0x54c && this.netmdInterface.netMd.getProduct() === 0x0286) {
+            // MZ-RH1
+            basic.push(Capability.trackDownload);
+        }
+        if (await this.netmdInterface?.canEjectDisc()){
+            basic.push(Capability.discEject);
+        }
+        try{
+            const flags = await this.netmdInterface?.getDiscFlags() ?? 0;
+            if (!(flags & DiscFlag.writeProtected)) {
+                return [...basic, Capability.trackUpload, Capability.metadataEdit];
+            }
+        }catch(err){}
+        return basic;
     }
 
     private async listContentUsingCache() {
@@ -156,18 +180,16 @@ export class NetMDUSBService implements NetMDService {
     async rewriteGroups(groups: Group[]) {
         const disc = await this.listContentUsingCache();
         disc.groups = groups;
-        await this.writeRawTitles(compileDiscTitles(disc));
+        await rewriteDiscGroups(this.netmdInterface!, disc);
     }
 
     @asyncMutex
     async renameTrack(index: number, title: string, fullWidthTitle?: string) {
         title = sanitizeHalfWidthTitle(title);
-        await this.netmdInterface!.cacheTOC();
         await this.netmdInterface!.setTrackTitle(index, title);
         if (fullWidthTitle !== undefined) {
             await this.netmdInterface!.setTrackTitle(index, sanitizeFullWidthTitle(fullWidthTitle), true);
         }
-        await this.netmdInterface!.syncTOC();
         this.dropCachedContentList();
     }
 
@@ -183,7 +205,7 @@ export class NetMDUSBService implements NetMDService {
         if (newFullWidthName !== undefined) {
             thisGroup.fullWidthTitle = newFullWidthName;
         }
-        await this.writeRawTitles(compileDiscTitles(disc));
+        await rewriteDiscGroups(this.netmdInterface!, disc);
     }
 
     @asyncMutex
@@ -214,7 +236,7 @@ export class NetMDUSBService implements NetMDService {
             tracks: thisGroupTracks,
         });
         disc.groups = disc.groups.filter(g => g.tracks.length !== 0).sort((a, b) => a.tracks[0].index - b.tracks[0].index);
-        await this.writeRawTitles(compileDiscTitles(disc));
+        await rewriteDiscGroups(this.netmdInterface!, disc);
     }
 
     @asyncMutex
@@ -226,68 +248,20 @@ export class NetMDUSBService implements NetMDService {
             disc.groups.splice(groupIndex, 1);
         }
 
-        await this.writeRawTitles(compileDiscTitles(disc));
+        await rewriteDiscGroups(this.netmdInterface!, disc);
     }
 
     @asyncMutex
     async renameDisc(newName: string, newFullWidthName?: string) {
-        // TODO: This whole function should be moved in netmd-js
-        const oldName = await this.netmdInterface!.getDiscTitle();
-        const oldFullWidthName = await this.netmdInterface!.getDiscTitle(true);
-        const oldRawName = await this.netmdInterface!._getDiscTitle();
-        const oldRawFullWidthName = await this.netmdInterface!._getDiscTitle(true);
-        const hasGroups = oldRawName.indexOf('//') >= 0;
-        const hasFullWidthGroups = oldRawName.indexOf('／／') >= 0;
-        const hasGroupsAndTitle = oldRawName.startsWith('0;');
-        const hasFullWidthGroupsAndTitle = oldRawName.startsWith('０；');
-
-        newName = sanitizeHalfWidthTitle(newName);
-        newFullWidthName = newFullWidthName && sanitizeFullWidthTitle(newFullWidthName);
-
-        if (newFullWidthName !== oldFullWidthName && newFullWidthName !== undefined) {
-            let newFullWidthNameWithGroups;
-            if (hasFullWidthGroups) {
-                if (hasFullWidthGroupsAndTitle) {
-                    newFullWidthNameWithGroups = oldRawFullWidthName.replace(
-                        /^０；.*?／／/,
-                        newFullWidthName !== '' ? `０；${newFullWidthName}／／` : ``
-                    );
-                } else {
-                    newFullWidthNameWithGroups = `０；${newFullWidthName}／／${oldRawFullWidthName}`; // Add the new title
-                }
-            } else {
-                newFullWidthNameWithGroups = newFullWidthName;
-            }
-            await this.netmdInterface!.cacheTOC();
-            await this.netmdInterface!.setDiscTitle(newFullWidthNameWithGroups, true);
-            await this.netmdInterface!.syncTOC();
-            this.dropCachedContentList();
-        }
-
-        if (newName === oldName) {
-            return;
-        }
-
-        let newNameWithGroups;
-
-        if (hasGroups) {
-            if (hasGroupsAndTitle) {
-                newNameWithGroups = oldRawName.replace(/^0;.*?\/\//, newName !== '' ? `0;${newName}//` : ``); // Replace or delete the old title
-            } else {
-                newNameWithGroups = `0;${newName}//${oldRawName}`; // Add the new title
-            }
-        } else {
-            newNameWithGroups = newName;
-        }
-
-        await this.netmdInterface!.cacheTOC();
-        await this.netmdInterface!.setDiscTitle(newNameWithGroups);
-        await this.netmdInterface!.syncTOC();
+        await renameDisc(this.netmdInterface!, newName, newFullWidthName);
         this.dropCachedContentList();
     }
 
     @asyncMutex
     async deleteTracks(indexes: number[]) {
+        try{
+            this.netmdInterface!.stop();
+        }catch(ex){}
         indexes = indexes.sort();
         indexes.reverse();
         let content = await this.listContentUsingCache();
@@ -296,22 +270,29 @@ export class NetMDUSBService implements NetMDService {
             await this.netmdInterface!.eraseTrack(index);
             await sleep(100);
         }
-        await this.writeRawTitles(compileDiscTitles(content));
+        await rewriteDiscGroups(this.netmdInterface!, content);
         this.dropCachedContentList();
     }
 
     @asyncMutex
     async wipeDisc() {
+        try{
+            this.netmdInterface!.stop();
+        }catch(ex){}
         await this.netmdInterface!.eraseDisc();
         this.dropCachedContentList();
     }
 
     @asyncMutex
+    async ejectDisc() {
+        await this.netmdInterface!.ejectDisc();
+        this.dropCachedContentList();
+    }
+
+    @asyncMutex
     async wipeDiscTitleInfo() {
-        await this.writeRawTitles({
-            newRawTitle: '',
-            newRawFullWidthTitle: '',
-        });
+        await this.netmdInterface!.setDiscTitle('');
+        await this.netmdInterface!.setDiscTitle('', true);
     }
 
     @asyncMutex
@@ -319,7 +300,7 @@ export class NetMDUSBService implements NetMDService {
         await this.netmdInterface!.moveTrack(src, dst);
 
         if (updateGroups === undefined || updateGroups) {
-            await this.writeRawTitles(compileDiscTitles(recomputeGroupsAfterTrackMove(await this.listContentUsingCache(), src, dst)));
+            await rewriteDiscGroups(this.netmdInterface!, recomputeGroupsAfterTrackMove(await this.listContentUsingCache(), src, dst));
         }
         this.dropCachedContentList();
     }
@@ -359,6 +340,13 @@ export class NetMDUSBService implements NetMDService {
         this.dropCachedContentList();
     }
 
+    async download(index: number, progressCallback: (progress: { read: number; total: number }) => void) {
+        const [format, data] = await upload(this.netmdInterface!, index, ({ readBytes, totalBytes }) => {
+            progressCallback({ read: readBytes, total: totalBytes });
+        });
+        return { format, data };
+    }
+
     @asyncMutex
     async play() {
         await this.netmdInterface!.play();
@@ -383,6 +371,11 @@ export class NetMDUSBService implements NetMDService {
     @asyncMutex
     async gotoTrack(index: number) {
         await this.netmdInterface!.gotoTrack(index);
+    }
+
+    @asyncMutex
+    async gotoTime(index: number, h: number, m: number, s: number, f: number) {
+        await this.netmdInterface!.gotoTime(index, h, m, s, f);
     }
 
     @asyncMutex
