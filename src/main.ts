@@ -26,6 +26,7 @@ async function integrate(window: BrowserWindow){
         writable: false,
         value: { usb }
     });
+    usb.ondisconnect = () => window.reload();
     const service = new NetMDUSBService({debug: true});
     
     let currentObj = service as any;
@@ -43,10 +44,9 @@ async function integrate(window: BrowserWindow){
                         }
                     }
                     try{
-                        return await (service as any)[n](...allArgs);
+                        return [ await (service as any)[n](...allArgs), null ];
                     }catch(err){
-                        window.reload();
-                        return null;
+                        return [ null, err ];
                     }
                 })
             });

@@ -16,7 +16,7 @@ import {
     ipcRenderer.on("_callback", (evt, cbname, ...args) => callbacks[cbname](...args));
 
     for(const name of defined){
-        iface[name] = (...args: any[]) => {
+        iface[name] = async (...args: any[]) => {
             const registeredForThis = new Set<string>();
             for(let i = 0; i<args.length; i++){
                 if(typeof args[i] === "function"){
@@ -25,7 +25,9 @@ import {
                     args[i] = { interprocessType: "function" };
                 }
             }
-            return ipcRenderer.invoke(name, ...args);
+            const [ response, error ] = await ipcRenderer.invoke(name, ...args);
+            if(error) throw error;
+            return await response;
         }
         console.log(`Registering invoker for #${i++}(${name})`);
     }
