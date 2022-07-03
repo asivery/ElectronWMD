@@ -1,6 +1,6 @@
 {
   "name": "electronwmd",
-  "version": "0.1.4-1.1.1",
+  "version": "0.2.0-1.2.2",
   "description": "Electron version of WebMinidisc Pro",
   "main": "dist/main.js",
   "scripts": {
@@ -44,12 +44,13 @@
     "async-mutex": "^0.3.2",
     "jconv": "^0.1.5",
     "jsbi": "^3.2.5",
-    "netmd-js": "^3.2.3",
+    "netmd-exploits": "^0.1.7",
+    "netmd-js": "^4.0.4",
     "typescript": "^4.3.5",
-    "webusb": "^2.2.0"
+    "usb": "^2.4.1"
   },
   "devDependencies": {
-    "electron": "13.1.8",
+    "electron": "^13.6.9",
     "electron-builder": "^22.11.7"
   }
 }

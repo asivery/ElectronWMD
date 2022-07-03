@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, protocol } from 'electron';
-import { usb } from 'webusb';
+import { WebUSB } from 'usb';
+import { DevicesIds } from 'netmd-js';
 import path from 'path';
 import { NetMDUSBService } from './wmd/netmd';
 
@@ -21,46 +22,70 @@ async function createWindow() {
     window.setTitle("Electron WMD");
 }
 
-async function integrate(window: BrowserWindow){
-    Object.defineProperty(global, "navigator", {
-        writable: false,
-        value: { usb }
-    });
-    usb.ondisconnect = () => window.reload();
-    const service = new NetMDUSBService({debug: true});
-    
-    let currentObj = service as any;
+function traverseObject(window: BrowserWindow, objectFactory: () => any, nameTranslator: (name: string) => string = e => e){
     const defined = new Set<string>();
+    let currentObj = objectFactory();
     do{
         Object.getOwnPropertyNames(currentObj)
             .filter(n => typeof currentObj[n] == "function" && !(n in defined))
             .forEach((n, i) => {
-                defined.add(n);
-                console.log(`[INTEGRATE]: Registering handler #${i}(${n})`);
-                ipcMain.handle(n, async function(e, ...allArgs: any[]){
+                const translatedName = nameTranslator(n);
+                defined.add(translatedName);
+                console.log(`[INTEGRATE]: Registering handler #${i}(${translatedName})`);
+                ipcMain.handle(translatedName, async function(_, ...allArgs: any[]){
                     for(let i = 0; i<allArgs.length; i++){
                         if(allArgs[i]?.interprocessType === "function"){
-                            allArgs[i] = async (...args: any[]) => window.webContents.send("_callback", `${n}_callback${i}`, ...args);
+                            allArgs[i] = async (...args: any[]) => window.webContents.send("_callback", `${translatedName}_callback${i}`, ...args);
                         }
                     }
                     try{
-                        return [ await (service as any)[n](...allArgs), null ];
+                        return [ await (objectFactory()[n](...allArgs)), null ];
                     }catch(err){
                         return [ null, err ];
                     }
                 })
             });
     }while((currentObj = Object.getPrototypeOf(currentObj)));
+    return defined;
+}
+
+async function integrate(window: BrowserWindow){
+    const webusb = new WebUSB({
+        allowedDevices: DevicesIds.map(n => ({ vendorId: n.vendorId, productId: n.deviceId })),
+        deviceTimeout: 10000000,
+    });
+    Object.defineProperty(global, "navigator", {
+        writable: false,
+        value: { usb: webusb }
+    });
+    webusb.addEventListener("disconnect", () => window.reload());
+    const service = new NetMDUSBService({debug: true});
+    
+    let currentObj = service as any;
+    console.log(currentObj);
 
     const defList: string[] = [];
-    defined.forEach(n => defList.push(n));
+    traverseObject(window, () => currentObj).forEach(n => defList.push(n));
 
     ipcMain.handle("_definedParameters", () => defList);
+    
+    let alreadySwitched = false;
+    let factoryIface: any = null;
+    let factoryDefList: string[] = [];
+
+    ipcMain.handle("_switchToFactory", async () => {
+        factoryIface = await service.factory();
+        if(alreadySwitched) return factoryDefList;
+        alreadySwitched = true;
+
+        traverseObject(window, () => factoryIface, e => `_factory__${e}`).forEach(e => factoryDefList.push(e));
+        return factoryDefList;
+    })
 }
 
 app.whenReady().then(() => {
     protocol.registerFileProtocol('sandbox', (rq, callback) =>{
-        const filePath = path.normalize(rq.url.substr('sandbox://'.length));
+        const filePath = path.normalize(rq.url.substring('sandbox://'.length));
         if(path.isAbsolute(filePath) || filePath.includes("..")){
             app.quit();
         }
