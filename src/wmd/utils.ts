@@ -1,9 +1,8 @@
 import { Disc, formatTimeFromFrames, Encoding, Group } from 'netmd-js';
 import { Mutex } from 'async-mutex';
 
-
 export function sleep(ms: number) {
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
         setTimeout(resolve, ms);
     });
 }
@@ -38,7 +37,6 @@ export function loadPreference<T>(key: string, defaultValue: T): T {
         }
     }
 }
-
 
 export function framesToSec(frames: number) {
     return frames / 512;
@@ -105,7 +103,7 @@ export function getGroupedTracks(disc: Disc | null) {
         return [];
     }
     let groupedList: Group[] = [];
-    let ungroupedTracks = [...(disc.groups.find(n => n.title === null)?.tracks ?? [])];
+    let ungroupedTracks = [...(disc.groups.find((n) => n.title === null)?.tracks ?? [])];
 
     let lastIndex = 0;
 
@@ -146,10 +144,10 @@ export function recomputeGroupsAfterTrackMove(disc: Disc, trackIndex: number, ta
     let boundsEnd = Math.max(trackIndex, targetIndex);
 
     let allTracks = disc.groups
-        .map(n => n.tracks)
+        .map((n) => n.tracks)
         .reduce((a, b) => a.concat(b), [])
         .sort((a, b) => a.index - b.index)
-        .filter(n => !deleteMode || n.index !== trackIndex);
+        .filter((n) => !deleteMode || n.index !== trackIndex);
 
     let groupBoundaries: {
         name: string | null;
@@ -157,8 +155,8 @@ export function recomputeGroupsAfterTrackMove(disc: Disc, trackIndex: number, ta
         start: number;
         end: number;
     }[] = disc.groups
-        .filter(n => n.title !== null)
-        .map(group => ({
+        .filter((n) => n.title !== null)
+        .map((group) => ({
             name: group.title,
             fullWidthName: group.fullWidthTitle,
             start: group.tracks[0].index,
@@ -184,17 +182,17 @@ export function recomputeGroupsAfterTrackMove(disc: Disc, trackIndex: number, ta
 
     // Convert back
     newDisc.groups = groupBoundaries
-        .map(n => ({
+        .map((n) => ({
             title: n.name,
             fullWidthTitle: n.fullWidthName,
             index: n.start,
             tracks: allTracks.slice(n.start, n.end + 1),
         }))
-        .filter(n => n.tracks.length > 0);
+        .filter((n) => n.tracks.length > 0);
 
     // Convert ungrouped tracks
-    let allGrouped = newDisc.groups.map(n => n.tracks).reduce((a, b) => a.concat(b), []);
-    let ungrouped = allTracks.filter(n => !allGrouped.includes(n));
+    let allGrouped = newDisc.groups.map((n) => n.tracks).reduce((a, b) => a.concat(b), []);
+    let ungrouped = allTracks.filter((n) => !allGrouped.includes(n));
 
     // Fix all the track indexes
     if (deleteMode) {

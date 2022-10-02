@@ -1,8 +1,10 @@
 {
     "compilerOptions": {
-      "target": "es5",
+      "target": "es2017",
       "noImplicitAny": true,
       "sourceMap": true,
+      "moduleResolution": "node",
+      "module": "CommonJS",
       "esModuleInterop": true,
       "outDir": "dist",
       "experimentalDecorators": true,
