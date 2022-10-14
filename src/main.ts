@@ -35,10 +35,13 @@ async function createWindow() {
                     submenu: [
                         {
                             label: 'Reload',
+                            accelerator: "CmdOrCtrl+R",
+                            role: "forceReload",
                             click: () => window.reload(),
                         },
                         {
                             type: 'checkbox',
+                            accelerator: "CmdOrCtrl+O", //please note: 'role' not required for this menu item, nor is such a role available for this action.
                             checked: downloadPath !== null,
                             label: downloadPath === null ? 'Set Default Download Directory' : `Current Download Directory: ${downloadPath}`,
                             click: () => {
@@ -59,6 +62,8 @@ async function createWindow() {
                         },
                         {
                             label: 'Exit',
+                            accelerator: "CmdOrCtrl+Q",
+                            role: "quit",
                             click: () => window.close(),
                         },
                 ]}, {
