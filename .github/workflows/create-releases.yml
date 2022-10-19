@@ -20,7 +20,7 @@ jobs:
           node-version: 14
 
       - name: Build/release Electron app
-        uses: asivery/action-electron-builder
+        uses: asivery/action-electron-builder@master
         with:
           # GitHub token, automatically provided to the action
           # (No need to define this secret in the repo settings)
