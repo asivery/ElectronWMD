@@ -19,7 +19,7 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt update
-          sudo echo 'deb https://dl.winehq.org/wine-builds/ubuntu/ focal main' >> /etc/apt/sources.list
+          echo 'deb https://dl.winehq.org/wine-builds/ubuntu/ focal main' | sudo tee /etc/apt/sources.list
           sudo apt install -y winehq-stable
       - name: Install Node.js, NPM and Yarn
         uses: actions/setup-node@v1
