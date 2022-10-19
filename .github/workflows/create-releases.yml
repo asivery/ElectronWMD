@@ -1,6 +1,6 @@
 name: Build/release
 
-on: push
+on: [ push, workflow_dispatch ]
 
 jobs:
   release:
@@ -8,19 +8,28 @@ jobs:
 
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [macos-latest, ubuntu-latest]
 
     steps:
       - name: Check out Git repository
         uses: actions/checkout@v1
-
+      
+      - name: Install dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo mkdir -pm755 /etc/apt/keyrings
+          sudo wget -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
+          sudo wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/focal/winehq-focal.sources
+          sudo apt update
+          sudo apt install -y --install-recommends winehq-stable
       - name: Install Node.js, NPM and Yarn
         uses: actions/setup-node@v1
         with:
           node-version: 14
 
       - name: Build/release Electron app
-        uses: samuelmeuli/action-electron-builder@v1
+        uses: asivery/action-electron-builder@master
         with:
           # GitHub token, automatically provided to the action
           # (No need to define this secret in the repo settings)
@@ -28,4 +37,6 @@ jobs:
 
           # If the commit is tagged with a version (e.g. "v1.0.0"),
           # release the app after building
-          release: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          release: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+          build_targets_linux: "windows, linux"
+          architectures_windows: "x64, ia32"
