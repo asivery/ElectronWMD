@@ -17,10 +17,10 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
-          sudo dpkg --add-architecture i386
-          sudo apt update
-          sudo apt install -y wine64 wine32
-
+          dpkg --add-architecture i386
+          apt update
+          echo 'deb https://dl.winehq.org/wine-builds/ubuntu/ focal main' >> /etc/apt/sources.list
+          apt install -y winehq-stable
       - name: Install Node.js, NPM and Yarn
         uses: actions/setup-node@v1
         with:
