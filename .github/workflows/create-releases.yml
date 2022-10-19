@@ -1,0 +1,50 @@
+name: Build and publish a release
+
+# workflow is pushed on demand
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        required: true
+        type: string
+      release_changelog:
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+    - name: install dependencies
+      run: |
+          sudo apt-get update
+          sudo apt-get -y install libudev-dev libusb-1.0-0-dev git
+
+  # needs to be node 14 due to node-gyp issue
+    - name: change node version
+      uses: actions/setup-node@v2
+      with:
+        node-version: '14'  
+
+  # 'do not treat warnings as errors' per 'deploy-to-gh-pages.yml'
+    - name: install and build
+      run: |
+        git config --global url."https://".insteadOf ssh://
+        npm ci
+        npm run dist
+        npm run dist-mac
+      env:
+        CI: false
+
+  # uploads the contents of the 'build/' folder to the '$web/ folder on the 'wmdpro' storage account using the key held in GH secrets
+    - name: Create a release  
+      uses: "marvinpinto/action-automatic-releases@latest"
+      with:
+        repo_token: "${{ secrets.GITHUB_TOKEN }}"
+        title: "${{ inputs.release_version }}"
+        description: "${{ inputs.release_changelog }}"
+        prerelease: false
+        files: |
+          build/*.AppImage
+          build/*.exe
+          build/*.dmg
