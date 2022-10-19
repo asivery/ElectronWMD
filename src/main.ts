@@ -102,7 +102,6 @@ async function createWindow() {
 
     setupMenu();
     window.setMenuBarVisibility(true);
-    window.setAutoHideMenuBar(true);
 
     window.webContents.session.on('will-download', async (event, item, contents) => {
         if (downloadPath) {

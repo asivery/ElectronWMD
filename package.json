@@ -1,6 +1,6 @@
 {
   "name": "electronwmd",
-  "version": "0.2.1-1.3.0",
+  "version": "0.2.1-1.3.2",
   "description": "Electron version of WebMinidisc Pro",
   "main": "dist/main.js",
   "scripts": {
@@ -17,13 +17,7 @@
     },
     "artifactName": "${name}-${version}-${os}_${arch}.${ext}",
     "compression": "store",
-    "asar": "true",
-    "asarUnpack": [
-      "./node_modules/netmd-js/**/*",
-      "./node_modules/crypto-js/**/*",
-      "./node_modules/jconv/**/*",
-      "./node_modules/jsbi/**/*"
-    ],
+    "asar": false,
     "win": {
       "icon": "./res/icon.ico"
     },

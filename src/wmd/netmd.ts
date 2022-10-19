@@ -431,9 +431,7 @@ export class NetMDUSBService implements NetMDService {
             progressCallback({ written, encrypted, total });
         }
         const w = new Worker(
-            process.env.NODE_ENV === 'development'
-                ? path.join(__dirname, '..', '..', 'node_modules', 'netmd-js', 'dist', 'node-encrypt-worker.js')
-                : path.join(__dirname, '..', '..', '..', 'app.asar.unpacked', 'node_modules', 'netmd-js', 'dist', 'node-encrypt-worker.js')
+            path.join(__dirname, '..', '..', 'node_modules', 'netmd-js', 'dist', 'node-encrypt-worker.js')
         );
 
         let webWorkerAsyncPacketIterator = makeGetAsyncPacketIteratorOnWorkerThread(w, ({ encryptedBytes }) => {

@@ -1,50 +1,31 @@
-name: Build and publish a release
+name: Build/release
 
-# workflow is pushed on demand
-on:
-  workflow_dispatch:
-    inputs:
-      release_version:
-        required: true
-        type: string
-      release_changelog:
-        required: true
-        type: string
+on: push
 
 jobs:
-  build:
-    runs-on: macos-latest
+  release:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+
     steps:
-    - name: install dependencies
-      run: |
-          sudo apt-get update
-          sudo apt-get -y install libudev-dev libusb-1.0-0-dev git
+      - name: Check out Git repository
+        uses: actions/checkout@v1
 
-  # needs to be node 14 due to node-gyp issue
-    - name: change node version
-      uses: actions/setup-node@v2
-      with:
-        node-version: '14'  
+      - name: Install Node.js, NPM and Yarn
+        uses: actions/setup-node@v1
+        with:
+          node-version: 14
 
-  # 'do not treat warnings as errors' per 'deploy-to-gh-pages.yml'
-    - name: install and build
-      run: |
-        git config --global url."https://".insteadOf ssh://
-        npm ci
-        npm run dist
-        npm run dist-mac
-      env:
-        CI: false
+      - name: Build/release Electron app
+        uses: samuelmeuli/action-electron-builder@v1
+        with:
+          # GitHub token, automatically provided to the action
+          # (No need to define this secret in the repo settings)
+          github_token: ${{ secrets.github_token }}
 
-  # uploads the contents of the 'build/' folder to the '$web/ folder on the 'wmdpro' storage account using the key held in GH secrets
-    - name: Create a release  
-      uses: "marvinpinto/action-automatic-releases@latest"
-      with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        title: "${{ inputs.release_version }}"
-        description: "${{ inputs.release_changelog }}"
-        prerelease: false
-        files: |
-          build/*.AppImage
-          build/*.exe
-          build/*.dmg
+          # If the commit is tagged with a version (e.g. "v1.0.0"),
+          # release the app after building
+          release: ${{ startsWith(github.ref, 'refs/tags/v') }}
