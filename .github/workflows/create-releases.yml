@@ -3,30 +3,20 @@ name: Build/release
 on: [ push, workflow_dispatch ]
 
 jobs:
+  mac-release:
+    runs-on: macos-latest
+
   release:
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      matrix:
-        os: [macos-latest, ubuntu-latest]
-
+    runs-on: ubuntu-latest
     steps:
       - name: Check out Git repository
         uses: actions/checkout@v1
       
-      - name: Install dependencies
+      - name: Build Linux
         if: matrix.os == 'ubuntu-latest'
         run: |
-          sudo dpkg --add-architecture i386
-          sudo mkdir -pm755 /etc/apt/keyrings
-          sudo wget -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
-          sudo wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/focal/winehq-focal.sources
-          sudo apt update
-          sudo apt install -y --install-recommends winehq-stable
-      - name: Install Node.js, NPM and Yarn
-        uses: actions/setup-node@v1
-        with:
-          node-version: 14
+          docker build . -t builder
+          docker run -v ./:/build builder bash -c "cd /build && make ci"
 
       - name: Build/release Electron app
         uses: asivery/action-electron-builder@master
