@@ -29,16 +29,19 @@ async function createWindow() {
 
     const setupMenu = () =>
         Menu.setApplicationMenu(
-            Menu.buildFromTemplate([
-                {
+            Menu.buildFromTemplate(
+                [{
                     label: 'File',
                     submenu: [
                         {
                             label: 'Reload',
+                            accelerator: "CmdOrCtrl+R",
+                            role: "forceReload",
                             click: () => window.reload(),
                         },
                         {
                             type: 'checkbox',
+                            accelerator: "CmdOrCtrl+O", //please note: 'role' not required for this menu item, nor is such a role available for this action.
                             checked: downloadPath !== null,
                             label: downloadPath === null ? 'Set Default Download Directory' : `Current Download Directory: ${downloadPath}`,
                             click: () => {
@@ -59,10 +62,41 @@ async function createWindow() {
                         },
                         {
                             label: 'Exit',
+                            accelerator: "CmdOrCtrl+Q",
+                            role: "quit",
                             click: () => window.close(),
                         },
-                    ],
-                },
+                ]}, {
+                    label: 'Edit',
+                    submenu: [
+                        {   label: "Undo", 
+                            accelerator: "CmdOrCtrl+Z", 
+                            role: "undo", 
+                        },
+                        {   label: "Redo",
+                            accelerator: "Shift+CmdOrCtrl+Z",
+                            role: "redo", 
+                        },
+                        {
+                            type: "separator", 
+                        },
+                        {   label: "Cut",
+                            accelerator: "CmdOrCtrl+X",
+                            role: "cut",
+                        },
+                        {   label: "Copy",
+                            accelerator: "CmdOrCtrl+C",
+                            role: "copy",
+                        },
+                        {   label: "Paste",
+                            accelerator: "CmdOrCtrl+V",
+                            role: "paste",
+                        },
+                        {   label: "Select All",
+                            accelerator: "CmdOrCtrl+A",
+                            role: "selectAll",
+                        },
+                    ]},
             ])
         );
 
