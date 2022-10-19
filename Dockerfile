@@ -8,3 +8,5 @@ RUN curl https://dl.winehq.org/wine-builds/winehq.key -o /etc/apt/keyrings/wineh
 RUN curl https://dl.winehq.org/wine-builds/ubuntu/dists/focal/winehq-focal.sources -o /etc/apt/sources.list.d/winehq-focal.sources
 RUN apt update
 RUN apt install -yq winehq-stable
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.2/install.sh | bash
+RUN nvm install 14
