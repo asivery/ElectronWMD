@@ -1,12 +1,15 @@
 FROM ubuntu:focal
+#Setup
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update
 RUN apt-get install -y make curl
+#Wine
 RUN dpkg --add-architecture i386
 RUN mkdir -pm755 /etc/apt/keyrings
 RUN curl https://dl.winehq.org/wine-builds/winehq.key -o /etc/apt/keyrings/winehq-archive.key 
 RUN curl https://dl.winehq.org/wine-builds/ubuntu/dists/focal/winehq-focal.sources -o /etc/apt/sources.list.d/winehq-focal.sources
 RUN apt update
 RUN apt install -yq winehq-stable
-RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.2/install.sh | bash
-RUN nvm install 14
+# NodeJS
+RUN curl -sL https://deb.nodesource.com/setup_14.x | bash -
+RUN apt-get install -y nodejs git
