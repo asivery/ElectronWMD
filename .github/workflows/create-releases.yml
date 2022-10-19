@@ -3,40 +3,26 @@ name: Build/release
 on: [ push, workflow_dispatch ]
 
 jobs:
+  #mac-release:
+  #  runs-on: macos-latest
+
   release:
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      matrix:
-        os: [macos-latest, ubuntu-latest]
-
+    runs-on: ubuntu-latest
     steps:
       - name: Check out Git repository
         uses: actions/checkout@v1
-      
-      - name: Install dependencies
-        if: matrix.os == 'ubuntu-latest'
+      - name: Build Linux
         run: |
-          sudo dpkg --add-architecture i386
-          sudo mkdir -pm755 /etc/apt/keyrings
-          sudo wget -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
-          sudo wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/focal/winehq-focal.sources
-          sudo apt update
-          sudo apt install -y --install-recommends winehq-stable
-      - name: Install Node.js, NPM and Yarn
-        uses: actions/setup-node@v1
+          docker build . -t builder
+          docker run -v $PWD:/build:z builder bash -c "cd /build && make ci"
+      - name: Create a release  
+        uses: "marvinpinto/action-automatic-releases@latest"
         with:
-          node-version: 14
-
-      - name: Build/release Electron app
-        uses: asivery/action-electron-builder@master
-        with:
-          # GitHub token, automatically provided to the action
-          # (No need to define this secret in the repo settings)
-          github_token: ${{ secrets.github_token }}
-
-          # If the commit is tagged with a version (e.g. "v1.0.0"),
-          # release the app after building
-          release: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
-          build_targets_linux: "windows, linux"
-          architectures_windows: "x64, ia32"
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          title: "${{ inputs.release_version }}"
+          description: "${{ inputs.release_changelog }}"
+          prerelease: false
+          files: |
+            build/*.AppImage
+            build/*.exe
+            build/*.dmg
