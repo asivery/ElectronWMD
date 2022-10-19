@@ -19,7 +19,7 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt update
-          sudo apt install -y wine wine64 wine:i386 wine32:i386
+          sudo apt install -y wine wine64 wine32 wine
 
       - name: Install Node.js, NPM and Yarn
         uses: actions/setup-node@v1
