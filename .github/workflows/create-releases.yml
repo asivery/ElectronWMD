@@ -20,7 +20,7 @@ jobs:
           node-version: 16
 
       - name: Build/release Electron app
-        uses: asivery/action-electron-builder
+        uses: asivery/action-electron-builder@master
         with:
           github_token: ${{ secrets.github_token }}
           architectures_mac: "arm64,x64"
