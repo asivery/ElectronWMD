@@ -53,6 +53,7 @@
     "@types/node-fetch": "^2.6.2",
     "electron": "^13.6.9",
     "electron-builder": "^23.0.3",
-    "prettier": "^2.7.1"
+    "prettier": "^2.7.1",
+    "run-script-os": "^1.1.6"
   }
 }
