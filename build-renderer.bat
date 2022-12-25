@@ -7,7 +7,7 @@ rd /S /Q webminidisc
 
 git clone https://github.com/asivery/webminidisc
 cd webminidisc
-npm ci
+npm i --legacy-peer-deps
 set PUBLIC_URL="sandbox://"
 npm run build
 rd /S /Q ..\renderer
