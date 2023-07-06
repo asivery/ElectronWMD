@@ -1,10 +1,13 @@
 import { app, BrowserWindow, ipcMain, Menu, protocol, dialog } from 'electron';
 import { WebUSB } from 'usb';
-import { DevicesIds } from 'netmd-js';
+import { DevicesIds as  NetMDDevicesIds } from 'netmd-js';
+import { DevicesIds as  HiMDDevicesIds } from 'himd-js';
 import path from 'path';
-import { NetMDUSBService } from './wmd/netmd';
+import { EWMDHiMD, EWMDNetMD } from './wmd/translations';
+import { NetMDFactoryService } from './wmd/original/services/interfaces/netmd';
 import fetch from 'node-fetch';
 import Store from 'electron-store';
+import { AtracRecoveryConfig } from 'netmd-exploits';
 
 const getOfRenderer = (...p: string[]) => path.join(__dirname, '..', 'renderer', ...p);
 
@@ -110,26 +113,31 @@ async function createWindow() {
     });
 }
 
-function traverseObject(window: BrowserWindow, objectFactory: () => any, nameTranslator: (name: string) => string = (e) => e) {
+function traverseObject(window: BrowserWindow, objectFactory: () => any, namespace: string) {
     const defined = new Set<string>();
     let currentObj = objectFactory();
     do {
         Object.getOwnPropertyNames(currentObj)
             .filter((n) => typeof currentObj[n] == 'function' && !(n in defined))
             .forEach((n, i) => {
-                const translatedName = nameTranslator(n);
+                const translatedName = namespace + n;
+                if(defined.has(translatedName)) return; // Overriden methods
                 defined.add(translatedName);
                 console.log(`[INTEGRATE]: Registering handler #${i}(${translatedName})`);
                 ipcMain.handle(translatedName, async function (_, ...allArgs: any[]) {
                     for (let i = 0; i < allArgs.length; i++) {
                         if (allArgs[i]?.interprocessType === 'function') {
                             allArgs[i] = async (...args: any[]) =>
-                                window.webContents.send('_callback', `${translatedName}_callback${i}`, ...args);
+                                {
+                                    window.webContents.send('_callback', `${translatedName}_callback${i}`, ...args);
+                                }
                         }
                     }
                     try {
                         return [await objectFactory()[n](...allArgs), null];
                     } catch (err) {
+                        console.log("Node Error: ");
+                        console.log(err);
                         return [null, err];
                     }
                 });
@@ -140,23 +148,28 @@ function traverseObject(window: BrowserWindow, objectFactory: () => any, nameTra
 
 async function integrate(window: BrowserWindow) {
     const webusb = new WebUSB({
-        allowedDevices: DevicesIds.map((n) => ({ vendorId: n.vendorId, productId: n.deviceId })),
+        allowedDevices: NetMDDevicesIds.concat(HiMDDevicesIds).map((n) => ({ vendorId: n.vendorId, productId: n.deviceId })),
         deviceTimeout: 10000000,
     });
+
     Object.defineProperty(global, 'navigator', {
         writable: false,
         value: { usb: webusb },
     });
+    Object.defineProperty(global, 'window', {
+        writable: false,
+        value: global,
+    });
+
     webusb.addEventListener('disconnect', () => window.reload());
-    const service = new NetMDUSBService({ debug: true });
+    const service = new EWMDNetMD({ debug: true });
 
     let currentObj = service as any;
     console.log(currentObj);
 
     const defList: string[] = [];
-    traverseObject(window, () => currentObj).forEach((n) => defList.push(n));
-
-    ipcMain.handle('_definedParameters', () => defList);
+    traverseObject(window, () => currentObj, "_netmd_").forEach((n) => defList.push(n));
+    ipcMain.handle('_netmd__definedParameters', () => defList);
 
     let alreadySwitched = false;
     let factoryIface: any = null;
@@ -170,14 +183,55 @@ async function integrate(window: BrowserWindow) {
         traverseObject(
             window,
             () => factoryIface,
-            (e) => `_factory__${e}`
+            "_factory__"
         ).forEach((e) => factoryDefList.push(e));
+
+
+        // exploitDownloadTrack uses nested objects with callbacks, and callbacks with return values.
+        // The nomral ipc-copying code can't be used for that.
+        let shouldAbortAtracDownload = false;
+        let handleBadSectorResolve: ((arg: "reload" | "abort" | "skip" | "yieldanyway") => void) | null = null
+        
+        ipcMain.removeHandler('_factory__exploitDownloadTrack');
+        ipcMain.handle('_factory__exploitDownloadTrack', async (_, ...allArgs: Parameters<NetMDFactoryService['exploitDownloadTrack']>) => {
+            handleBadSectorResolve = null;
+            shouldAbortAtracDownload = false;
+
+            allArgs[3] = {
+                ...allArgs[3],
+                handleBadSector: allArgs[3].handleBadSector ? async (...args: any[]) => {
+                    window.webContents.send('_atracdl_callback_handleBadSector', ...args);
+                    return await new Promise<"reload" | "abort" | "skip" | "yieldanyway">(res => handleBadSectorResolve = res);
+                } : undefined,
+                shouldCancelImmediately: allArgs[3].handleBadSector ? () => shouldAbortAtracDownload : undefined,
+            };
+            allArgs[2] = async (...args: any[]) =>
+                window.webContents.send('_callback', `_factory__exploitDownloadTrack_callback2`, ...args);
+
+            try{
+                return [await factoryIface.exploitDownloadTrack(...allArgs), null];
+            }catch (err) {
+                console.log("Node Error: ");
+                console.log(err);
+                return [null, err];
+            }
+        });
+        ipcMain.handle('_atracdl_cancel', () => shouldAbortAtracDownload = true);
+        ipcMain.handle('_atracdl_callback_handleBadSector_return', (_, status: "reload" | "abort" | "skip" | "yieldanyway") => handleBadSectorResolve?.(status));
+
         return factoryDefList;
     });
+
+    const himdService: any = new EWMDHiMD({ debug: true });
+    const himdDeflist: string[] = [];
+    traverseObject(window, () => himdService, "_himd_").forEach((n) => himdDeflist.push(n));
+    ipcMain.handle('_himd__definedParameters', () => himdDeflist);
 
     ipcMain.handle('_unrestrictedFetch', async (_: any, url: string, parameters: any) => {
         return await (await fetch(url, parameters)).text();
     });
+
+    window.webContents.openDevTools();
 }
 
 app.whenReady().then(() => {

@@ -4,6 +4,8 @@ if [ -d "renderer" ]; then
     exit
 fi
 
+export NODE_OPTIONS=--openssl-legacy-provider
+
 rm -rf webminidisc
 
 git clone https://github.com/asivery/webminidisc

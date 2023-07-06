@@ -1,4 +1,4 @@
-import { Disc, formatTimeFromFrames, Encoding, Group } from 'netmd-js';
+import { Disc, Group, Track } from './services/interfaces/netmd';
 import { Mutex } from 'async-mutex';
 
 export function sleep(ms: number) {
@@ -61,23 +61,19 @@ export function secondsToNormal(time: number): string {
     return `${h > 0 ? h + ':' : ''}${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
-export const EncodingName: { [k: number]: string } = {
-    [Encoding.sp]: 'SP',
-    [Encoding.lp2]: 'LP2',
-    [Encoding.lp4]: 'LP4',
-};
-
 export type DisplayTrack = {
     index: number;
     title: string;
     fullWidthTitle: string;
     group: string | null;
-    duration: string;
+    duration: number;
     encoding: string;
-    durationInSecs: number;
+
+    album?: string;
+    artist?: string;
 };
 
-export function getSortedTracks(disc: Disc | null) {
+export function getSortedTracks(disc: Disc | null): DisplayTrack[] {
     let tracks: DisplayTrack[] = [];
     if (disc !== null) {
         for (let group of disc.groups) {
@@ -87,9 +83,11 @@ export function getSortedTracks(disc: Disc | null) {
                     title: track.title ?? `Unknown Title`,
                     fullWidthTitle: track.fullWidthTitle ?? ``,
                     group: group.title ?? null,
-                    encoding: EncodingName[track.encoding],
-                    duration: formatTimeFromFrames(track.duration, false),
-                    durationInSecs: track.duration / 512, // CAVEAT: 1s = 512 frames
+                    encoding: track.encoding.codec,
+                    duration: track.duration,
+
+                    album: track.album,
+                    artist: track.artist,
                 });
             }
         }
@@ -230,6 +228,10 @@ export function asyncMutex(target: any, propertyKey: string, descriptor: Propert
         }
     };
     return descriptor;
+}
+
+export function getPublicPathFor(path: string){
+    return `sandbox://${path}`;
 }
 
 declare let process: any;
