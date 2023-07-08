@@ -3,11 +3,12 @@ import { WebUSB } from 'usb';
 import { DevicesIds as  NetMDDevicesIds } from 'netmd-js';
 import { DevicesIds as  HiMDDevicesIds } from 'himd-js';
 import path from 'path';
+import fs from 'fs';
 import { EWMDHiMD, EWMDNetMD } from './wmd/translations';
 import { NetMDFactoryService } from './wmd/original/services/interfaces/netmd';
 import fetch from 'node-fetch';
 import Store from 'electron-store';
-import { AtracRecoveryConfig } from 'netmd-exploits';
+import { Connection, getSocketName, startServer } from './macos/server-bootstrap';
 
 const getOfRenderer = (...p: string[]) => path.join(__dirname, '..', 'renderer', ...p);
 
@@ -21,6 +22,9 @@ async function createWindow() {
             preload: path.join(__dirname, 'preload.js'),
         },
     });
+
+    console.log(app.getPath('exe'))
+
     await integrate(window);
     window.setMenuBarVisibility(false);
     await window.loadURL('file://' + getOfRenderer('index.html')); //Can't use the `sandbox://` protocol - index.html would (incorrectly) redirect to https
@@ -113,36 +117,40 @@ async function createWindow() {
     });
 }
 
-function traverseObject(window: BrowserWindow, objectFactory: () => any, namespace: string) {
+function getDefinedFunctions(currentObj: any){
     const defined = new Set<string>();
-    let currentObj = objectFactory();
-    do {
+    do{
         Object.getOwnPropertyNames(currentObj)
-            .filter((n) => typeof currentObj[n] == 'function' && !(n in defined))
-            .forEach((n, i) => {
-                const translatedName = namespace + n;
-                if(defined.has(translatedName)) return; // Overriden methods
-                defined.add(translatedName);
-                console.log(`[INTEGRATE]: Registering handler #${i}(${translatedName})`);
-                ipcMain.handle(translatedName, async function (_, ...allArgs: any[]) {
-                    for (let i = 0; i < allArgs.length; i++) {
-                        if (allArgs[i]?.interprocessType === 'function') {
-                            allArgs[i] = async (...args: any[]) =>
-                                {
-                                    window.webContents.send('_callback', `${translatedName}_callback${i}`, ...args);
-                                }
-                        }
-                    }
-                    try {
-                        return [await objectFactory()[n](...allArgs), null];
-                    } catch (err) {
-                        console.log("Node Error: ");
-                        console.log(err);
-                        return [null, err];
-                    }
-                });
-            });
+        .filter((n) => typeof currentObj[n] == 'function' && !(n in defined))
+        .forEach(defined.add.bind(defined));
     } while ((currentObj = Object.getPrototypeOf(currentObj)));
+    return defined;
+}
+
+function traverseObject(window: BrowserWindow, objectFactory: () => any, namespace: string) {
+    let currentObj = objectFactory();
+    const defined = getDefinedFunctions(currentObj);
+    defined.forEach((n) => {
+        const translatedName = namespace + n;
+        console.log(`[INTEGRATE]: Registering handler ${translatedName}`);
+        ipcMain.handle(translatedName, async function (_, ...allArgs: any[]) {
+            for (let i = 0; i < allArgs.length; i++) {
+                if (allArgs[i]?.interprocessType === 'function') {
+                    allArgs[i] = async (...args: any[]) =>
+                        {
+                            window.webContents.send('_callback', `${translatedName}_callback${i}`, ...args);
+                        }
+                }
+            }
+            try {
+                return [await objectFactory()[n](...allArgs), null];
+            } catch (err) {
+                console.log("Node Error: ");
+                console.log(err);
+                return [null, err];
+            }
+        });
+    });
     return defined;
 }
 
@@ -168,7 +176,7 @@ async function integrate(window: BrowserWindow) {
     console.log(currentObj);
 
     const defList: string[] = [];
-    traverseObject(window, () => currentObj, "_netmd_").forEach((n) => defList.push(n));
+    traverseObject(window, () => currentObj, "_netmd_").forEach((n) => defList.push('_netmd_' + n));
     ipcMain.handle('_netmd__definedParameters', () => defList);
 
     let alreadySwitched = false;
@@ -223,9 +231,51 @@ async function integrate(window: BrowserWindow) {
     });
 
     const himdService: any = new EWMDHiMD({ debug: true });
-    const himdDeflist: string[] = [];
-    traverseObject(window, () => himdService, "_himd_").forEach((n) => himdDeflist.push(n));
-    ipcMain.handle('_himd__definedParameters', () => himdDeflist);
+    if(process.platform !== 'darwin'){
+        const himdDeflist: string[] = [];
+        traverseObject(window, () => himdService, "_himd_").forEach((n) => himdDeflist.push('_himd_' + n));
+        ipcMain.handle('_himd__definedParameters', () => himdDeflist);    
+    } else {
+        const connection = new Connection();
+
+        connection.callbackHandler = (name: string, ...args: any[]) => window.webContents.send("_callback", '_himd_' + name, ...args);
+        const definedMethods = getDefinedFunctions(himdService);
+        ipcMain.handle('_himd__definedParameters', () => [...definedMethods].map(e => '_himd_' + e));
+        for(let methodName of definedMethods){
+            ipcMain.handle(`_himd_${methodName}`, async (_, ...allArgs: any[]) => {
+                if(methodName === 'connect' && !connection.socket){
+                    // startServer();
+                    await new Promise<void>(res => {
+                        let interval = setInterval(() => {
+                            try{
+                                if(fs.statSync(getSocketName()).isSocket()){
+                                    clearInterval(interval);
+                                    res();
+                                    return;
+                                }
+                            }catch(ex){
+                                //pass
+                            }
+                        }, 500);
+                    })
+                    try{
+                        connection.connect();
+                    }catch(ex){
+                        connection.socket = null;
+                        throw ex;
+                    }
+                }
+
+                try {
+                    return [await connection.callMethod(methodName, ...allArgs), null];
+                } catch (err) {
+                    console.log("Node Error: ");
+                    console.log(err);
+                    return [null, err];
+                }
+            });
+        }
+    }
 
     ipcMain.handle('_unrestrictedFetch', async (_: any, url: string, parameters: any) => {
         return await (await fetch(url, parameters)).text();
