@@ -168,6 +168,10 @@ async function integrate(window: BrowserWindow) {
         writable: false,
         value: global,
     });
+    Object.defineProperty(global, 'alert', {
+        writable: false,
+        value: (text: string) => dialog.showMessageBoxSync(window, { message: text }),
+    });
 
     webusb.addEventListener('disconnect', () => window.reload());
     const service = new EWMDNetMD({ debug: true });
@@ -262,7 +266,8 @@ async function integrate(window: BrowserWindow) {
                         connection.connect();
                     }catch(ex){
                         connection.socket = null;
-                        throw ex;
+                        console.log(ex);
+                        return [null, ex];
                     }
                 }
 
