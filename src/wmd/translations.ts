@@ -55,7 +55,7 @@ export class EWMDHiMD extends HiMDFullService {
     async download(index: number, progressCallback: (progress: { read: number; total: number; }) => void): Promise<{ format: DiscFormat; data: Uint8Array; } | null> {
         const trackNumber = this.himd!.trackIndexToTrackSlot(index);
         const nodeWorker = await makeAsyncDecryptor(new Worker(
-            path.join(__dirname, '..', '..', 'node_modules', 'netmd-js', 'dist', 'node-encrypt-worker.js')
+            path.join(__dirname, '..', '..', 'node_modules', 'himd-js', 'dist', 'node-crypto-worker.js')
         ));
         const info = dumpTrack(this.himd!, trackNumber, nodeWorker);
         const blocks: Uint8Array[] = [];
