@@ -4,7 +4,7 @@
   "description": "Electron version of WebMinidisc Pro",
   "main": "dist/main.js",
   "scripts": {
-    "build": "./build-renderer.sh && tsc",
+    "build": "./build-renderer.sh && ./patch-dependencies.sh && tsc",
     "start": "npm run build && NODE_ENV=development electron ./dist/main.js",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder -wl --x64 && electron-builder -w --ia32",

@@ -2,9 +2,13 @@ import fs from 'fs';
 import { EWMDHiMD } from '../wmd/translations';
 import { createServer } from 'net';
 import { PackrStream, UnpackrStream } from 'msgpackr';
-import { getSocketName } from './server-bootstrap';
+import { join as pathJoin } from 'path';
 import { WebUSB } from 'usb';
 import { DevicesIds as HiMDDevicesIds } from 'himd-js';
+
+export function getSocketName(){
+    return pathJoin(process.env['TMPDIR'] || '/tmp/', 'ewmd-intermediary.sock');
+}
 
 const socketName = getSocketName();
 function closeAll(){

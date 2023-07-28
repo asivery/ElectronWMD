@@ -10,9 +10,9 @@ export function getSocketName(){
 
 export function startServer(){
     const executablePath = app.getPath('exe');
-    const serverPath = pathJoin(app.getAppPath(), "macos", "server.js");
+    const serverPath = pathJoin(app.getAppPath(), "dist", "macos", "server.js");
     return new Promise<void>((res) => 
-        sudoExec(`ELECTRON_RUN_AS_NODE=1 ${executablePath.replace(" ", "\\ ")} ${serverPath.replace(" ", "\ ")}`, {
+        sudoExec(`ELECTRON_RUN_AS_NODE=1 "${executablePath}" "${serverPath}"`, {
             name: "ElectronWMD",
         }, (err, stdout, stderr) => {
             if(err){

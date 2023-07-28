@@ -248,7 +248,7 @@ async function integrate(window: BrowserWindow) {
         for(let methodName of definedMethods){
             ipcMain.handle(`_himd_${methodName}`, async (_, ...allArgs: any[]) => {
                 if(methodName === 'connect' && !connection.socket){
-                    // startServer();
+                    startServer();
                     await new Promise<void>(res => {
                         let interval = setInterval(() => {
                             try{
