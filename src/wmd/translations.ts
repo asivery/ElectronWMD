@@ -18,7 +18,8 @@ export class EWMDNetMD extends NetMDUSBService {
         _format: Codec,
         progressCallback: (progress: { written: number; encrypted: number; total: number }) => void
     ) {
-        let format = _format.codec === "AT3" ? { codec: _format.bitrate === 66 ? 'LP4' : 'LP2' }: _format;
+        let format = _format.codec === 'AT3' ? { codec: _format.bitrate === 66 ? 'LP4' : 'LP2' } :
+                     _format.codec === 'MONO' ? { codec: 'SP' } : _format;
         if (this.currentSession === undefined) {
             throw new Error('Cannot upload without initializing a session first');
         }
@@ -39,12 +40,12 @@ export class EWMDNetMD extends NetMDUSBService {
 
         let halfWidthTitle = sanitizeHalfWidthTitle(title);
         fullWidthTitle = sanitizeFullWidthTitle(fullWidthTitle);
-        let mdTrack = new MDTrack(halfWidthTitle, WireformatDict[format.codec], data, 0x80000, fullWidthTitle, webWorkerAsyncPacketIterator);
+        let mdTrack = new MDTrack(halfWidthTitle, WireformatDict[format.codec], data, 0x400, fullWidthTitle, webWorkerAsyncPacketIterator);
 
         await this.currentSession.downloadTrack(mdTrack, ({ writtenBytes }) => {
             written = writtenBytes;
             updateProgress();
-        });
+        }, _format.codec === 'MONO' ? DiscFormat.spMono : undefined);
 
         w.terminate();
         this.dropCachedContentList();

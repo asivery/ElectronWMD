@@ -93,10 +93,15 @@ import { NetMDFactoryService } from './wmd/original/services/interfaces/netmd';
         return JSON.parse(await ipcRenderer.invoke('_unrestrictedFetch', url, parameters));
     }
 
+    async function signHiMDDisc(){
+        await ipcRenderer.invoke("_signHiMDDisc");
+    }
+
     contextBridge.exposeInMainWorld('native', {
         interface: iface,
         himdFullInterface: himdIface,
         unrestrictedFetchJSON,
+        signHiMDDisc,
     });
 
     console.log('====PRELOAD COMPLETE====');

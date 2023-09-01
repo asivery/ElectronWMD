@@ -2,40 +2,69 @@ import { Mutex } from 'async-mutex';
 import { DeviceStatus, DiscFormat, TrackFlag } from 'netmd-js';
 import { Logger } from 'netmd-js/dist/logger';
 import { makeAsyncDecryptor } from 'himd-js/dist/web-crypto-worker';
-import { HiMD, FSAHiMDFilesystem, getGroups, renameTrack, renameDisc, renameGroup, addGroup, deleteGroup, moveTrack, dumpTrack, rewriteGroups, UMSCHiMDFilesystem, uploadMP3Track, HiMDFile, HiMDWriteStream, uploadMacDependent, UMSCHiMDSession, generateCodecInfo, HiMDKBPSToFrameSize, HiMDError, getCodecName, HiMDFilesystem, DevicesIds } from 'himd-js';
-import { Capability, Disc, NetMDFactoryService, NetMDService, Track, Group, MinidiscSpec, RecordingCodec, Codec, TitleParameter } from './netmd';
+import {
+    HiMD,
+    FSAHiMDFilesystem,
+    getGroups,
+    renameTrack,
+    renameDisc,
+    renameGroup,
+    addGroup,
+    deleteGroup,
+    moveTrack,
+    dumpTrack,
+    rewriteGroups,
+    UMSCHiMDFilesystem,
+    uploadMP3Track,
+    HiMDFile,
+    HiMDWriteStream,
+    uploadMacDependent,
+    UMSCHiMDSession,
+    generateCodecInfo,
+    HiMDKBPSToFrameSize,
+    HiMDError,
+    getCodecName,
+    HiMDFilesystem,
+    DevicesIds,
+} from 'himd-js';
+import {
+    Capability,
+    Disc,
+    NetMDFactoryService,
+    NetMDService,
+    Track,
+    Group,
+    MinidiscSpec,
+    RecordingCodec,
+    Codec,
+    TitleParameter,
+} from './netmd';
 import { concatUint8Arrays } from 'netmd-js/dist/utils';
 import { recomputeGroupsAfterTrackMove } from '../../utils';
 
 const Worker = null as any;
 
 export class HiMDSpec implements MinidiscSpec {
-    constructor(
-        private unrestricted: boolean = false
-    ) {
+    constructor(private unrestricted: boolean = false) {
         this.specName = unrestricted ? 'HiMD_full' : 'HiMD_restricted';
     }
-    public readonly availableFormats: RecordingCodec[] = this.unrestricted ? [
-        { codec: 'A3+', availableBitrates: [352, 256, 192, 64, 48], defaultBitrate: 256 },
-        { codec: 'AT3', availableBitrates: [132, 105, 66], defaultBitrate: 132 },
-        { codec: 'MP3', availableBitrates: [320, 256, 192, 128, 96, 64], defaultBitrate: 192 },
-        { codec: 'PCM' },
-    ] : [
-        { codec: 'MP3', availableBitrates: [320, 256, 192, 128, 96, 64], defaultBitrate: 192 },
-    ];
-    public readonly defaultFormat: Codec = this.unrestricted ?
-        { codec: 'A3+', bitrate: 256 }:
-        { codec: 'MP3', bitrate: 192 };
-    public readonly titleType = 'HiMD';
+    public readonly availableFormats: RecordingCodec[] = this.unrestricted
+        ? [
+              { codec: 'A3+', availableBitrates: [352, 256, 192, 64, 48], defaultBitrate: 256 },
+              { codec: 'AT3', availableBitrates: [132, 105, 66], defaultBitrate: 132 },
+              { codec: 'MP3', availableBitrates: [320, 256, 192, 128, 96, 64], defaultBitrate: 192 },
+              { codec: 'PCM' },
+          ]
+        : [{ codec: 'MP3', availableBitrates: [320, 256, 192, 128, 96, 64], defaultBitrate: 192 }];
+    public readonly defaultFormat: Codec = this.unrestricted ? { codec: 'A3+', bitrate: 256 } : { codec: 'MP3', bitrate: 192 };
     public readonly specName: string;
-    public readonly fullWidthSupport = false;
 
-    getRemainingCharactersForTitles(disc: Disc): { halfWidth: number; fullWidth: number; } {
+    getRemainingCharactersForTitles(disc: Disc): { halfWidth: number; fullWidth: number } {
         // FIXME
         return { halfWidth: 99999, fullWidth: 99999 };
     }
 
-    getCharactersForTitle(track: Track): { halfWidth: number; fullWidth: number; } {
+    getCharactersForTitle(track: Track): { halfWidth: number; fullWidth: number } {
         // FIXME
         return { halfWidth: 0, fullWidth: 0 };
     }
@@ -66,7 +95,7 @@ export class HiMDSpec implements MinidiscSpec {
         }
     }
     sanitizeFullWidthTitle(title: string) {
-        return "";
+        return title;
     }
     sanitizeHalfWidthTitle(title: string) {
         return title;
@@ -101,13 +130,13 @@ export class HiMDRestrictedService extends NetMDService {
         }
         this.spec = new HiMDSpec(false);
     }
-    getRemainingCharactersForTitles(disc: Disc): { halfWidth: number; fullWidth: number; } {
+    getRemainingCharactersForTitles(disc: Disc): { halfWidth: number; fullWidth: number } {
         return { halfWidth: Number.MAX_SAFE_INTEGER, fullWidth: Number.MAX_SAFE_INTEGER };
     }
-    getCharactersForTitle(track: Track): { halfWidth: number; fullWidth: number; } {
+    getCharactersForTitle(track: Track): { halfWidth: number; fullWidth: number } {
         return {
             halfWidth: (track.album ?? '').length + (track.artist ?? '').length + (track.title ?? '').length,
-            fullWidth: 0
+            fullWidth: 0,
         };
     }
 
@@ -127,7 +156,7 @@ export class HiMDRestrictedService extends NetMDService {
     protected async reloadCache() {
         if (this.cachedDisc === undefined) {
             // In kB
-            const totalSpaceTaken = (await this.himd!.filesystem.getSizeOfDirectory("/")) / 1024;
+            const totalSpaceTaken = (await this.himd!.filesystem.getSizeOfDirectory('/')) / 1024;
             const totalVolumeSize = (await this.himd!.filesystem.getTotalSpace()) / 1024;
             const defaultBitrate = this.spec.defaultFormat.bitrate! / 8; // in kB/s
 
@@ -142,21 +171,21 @@ export class HiMDRestrictedService extends NetMDService {
             // NetMD should instead make sure the <ungrouped tracks> is just the 0th group, instead of all groups where title === null
             this.cachedDisc = {
                 fullWidthTitle: '',
-                title: this.himd!.getDiscTitle() || "",
+                title: this.himd!.getDiscTitle() || '',
                 groups: groups.map((g, i) => ({
-                    fullWidthTitle: "",
-                    title: g.title ?? (i === 0 ? null : ""),
+                    fullWidthTitle: '',
+                    title: g.title ?? (i === 0 ? null : ''),
                     index: g.startIndex,
                     tracks: g.tracks.map(trk => ({
                         index: trk.index,
-                        title: trk.title ?? "",
-                        album: trk.album ?? "",
-                        artist: trk.artist ?? "",
+                        title: trk.title ?? '',
+                        album: trk.album ?? '',
+                        artist: trk.artist ?? '',
                         encoding: { codec: trk.encoding, bitrate: trk.bitrate },
                         fullWidthTitle: '',
                         protected: TrackFlag.unprotected,
                         channel: 2,
-                        duration: trk.duration
+                        duration: trk.duration,
                     })) as Track[],
                 })),
                 left: remainingSeconds,
@@ -174,27 +203,29 @@ export class HiMDRestrictedService extends NetMDService {
         this.cachedDisc = undefined;
     }
 
-    async initHiMD(){
+    async initHiMD() {
         this.himd = await HiMD.init(this.fsDriver!);
     }
 
     async listContent(dropCache?: boolean | undefined): Promise<Disc> {
-        if(!this.himd){
+        if (!this.himd) {
             await this.initHiMD();
         }
         (window as any).himd = this.himd;
-        if (dropCache)
-            this.cachedDisc = undefined;
+        if (dropCache) this.cachedDisc = undefined;
         await this.reloadCache();
         return JSON.parse(JSON.stringify(this.cachedDisc!));
     }
     async getDeviceName(): Promise<string> {
-        return "HiMD";
+        return 'HiMD';
     }
-    async finalize(): Promise<void> { }
+    async finalize(): Promise<void> {}
 
     async renameTrack(index: number, newTitle: TitleParameter, newFullWidthTitle?: string | undefined) {
-        renameTrack(this.himd!, index, newTitle as {});
+        if (typeof newTitle === 'string') {
+            newTitle = { title: newTitle };
+        }
+        renameTrack(this.himd!, index, newTitle);
         this.dropCachedContentList();
     }
 
@@ -225,19 +256,31 @@ export class HiMDRestrictedService extends NetMDService {
     }
 
     async rewriteGroups(groups: Group[]): Promise<void> {
-        rewriteGroups(this.himd!, groups.filter(e => e.title !== null).map(e => ({
-            title: e.title,
-            indices: e.tracks.map(q => q.index)
-        })));
+        rewriteGroups(
+            this.himd!,
+            groups
+                .filter(e => e.title !== null)
+                .map(e => ({
+                    title: e.title,
+                    indices: e.tracks.map(q => q.index),
+                }))
+        );
         this.dropCachedContentList();
     }
 
     async deleteTracks(indexes: number[]): Promise<void> {
-        window.alert("Not yet available in HiMD");
+        window.alert('Not yet available in HiMD');
     }
 
     async wipeDisc(): Promise<void> {
-        window.alert("Not yet available in HiMD");
+        try{
+            await this.himd!.wipe(false);
+            this.dropCachedContentList();
+        }catch(ex){
+            console.log(ex);
+            window.alert('Not yet available in HiMD');
+            return;
+        }
     }
 
     async moveTrack(src: number, dst: number, updateGroups?: boolean) {
@@ -249,7 +292,7 @@ export class HiMDRestrictedService extends NetMDService {
     }
 
     async prepareUpload() {
-        if (this.atdata !== null) throw new Error("Already prepared");
+        if (this.atdata !== null) throw new Error('Already prepared');
         this.atdata = await this.himd!.openAtdataForWriting();
     }
 
@@ -261,28 +304,39 @@ export class HiMDRestrictedService extends NetMDService {
         this.dropCachedContentList();
     }
 
-    async upload(title: TitleParameter, fullWidthTitle: string, data: ArrayBuffer, format: Codec, progressCallback: (progress: { written: number; encrypted: number; total: number; }) => void) {
-        if (format.codec !== "MP3") {
-            throw new Error("Unavailable in restricted mode");
+    async upload(
+        title: TitleParameter,
+        fullWidthTitle: string,
+        data: ArrayBuffer,
+        format: Codec,
+        progressCallback: (progress: { written: number; encrypted: number; total: number }) => void
+    ) {
+        if (format.codec !== 'MP3') {
+            throw new Error('Unavailable in restricted mode');
         }
-        const stream = new HiMDWriteStream(
-            this.himd!,
-            this.atdata!,
-            true,
-        );
+        const stream = new HiMDWriteStream(this.himd!, this.atdata!, true);
         let firstByteOffset = -1;
-        await uploadMP3Track(this.himd!, stream, data, title as { title?: string | undefined; album?: string | undefined; artist?: string | undefined; }, (obj) => {
-            if (firstByteOffset === -1) {
-                firstByteOffset = obj.byte;
+        await uploadMP3Track(
+            this.himd!,
+            stream,
+            data,
+            title as { title?: string | undefined; album?: string | undefined; artist?: string | undefined },
+            obj => {
+                if (firstByteOffset === -1) {
+                    firstByteOffset = obj.byte;
+                }
+                progressCallback({
+                    written: obj.byte - firstByteOffset,
+                    encrypted: obj.byte - firstByteOffset,
+                    total: obj.totalBytes - firstByteOffset,
+                });
             }
-            progressCallback({
-                written: obj.byte - firstByteOffset,
-                encrypted: obj.byte - firstByteOffset,
-                total: obj.totalBytes - firstByteOffset,
-            });
-        });
+        );
     }
-    async download(index: number, progressCallback: (progress: { read: number; total: number; }) => void): Promise<{ format: DiscFormat; data: Uint8Array; } | null> {
+    async download(
+        index: number,
+        progressCallback: (progress: { read: number; total: number }) => void
+    ): Promise<{ format: DiscFormat; data: Uint8Array } | null> {
         const trackNumber = this.himd!.trackIndexToTrackSlot(index);
         const webWorker = await makeAsyncDecryptor(new Worker());
         const info = dumpTrack(this.himd!, trackNumber, webWorker);
@@ -295,7 +349,14 @@ export class HiMDRestrictedService extends NetMDService {
     }
 
     async getServiceCapabilities() {
-        return [Capability.contentList, Capability.metadataEdit, Capability.requiresManualFlush, Capability.trackDownload, Capability.trackUpload];
+        return [
+            Capability.contentList,
+            Capability.metadataEdit,
+            Capability.requiresManualFlush,
+            Capability.trackDownload,
+            Capability.trackUpload,
+            Capability.himdTitles,
+        ];
     }
 
     async pair() {
@@ -307,7 +368,7 @@ export class HiMDRestrictedService extends NetMDService {
         return false;
     }
 
-    canBeFlushed() {
+    async canBeFlushed() {
         return this.atdata !== null || (this.himd?.isDirty() ?? false);
     }
 
@@ -325,7 +386,7 @@ export class HiMDRestrictedService extends NetMDService {
         throw new Error('Method impossible to implement.');
     }
 
-    async wipeDiscTitleInfo(): Promise<void> { }
+    async wipeDiscTitleInfo(): Promise<void> {}
 
     ///////////////////////UNRESTRICTED ONLY/////////////////////////
 
@@ -355,7 +416,6 @@ export class HiMDRestrictedService extends NetMDService {
     }
 }
 
-
 export class HiMDFullService extends HiMDRestrictedService {
     protected session: UMSCHiMDSession | null = null;
     protected fsDriver?: UMSCHiMDFilesystem;
@@ -364,35 +424,48 @@ export class HiMDFullService extends HiMDRestrictedService {
         this.spec = new HiMDSpec(true);
     }
     async getDeviceName(): Promise<string> {
-        if(!this.himd) await this.initHiMD();
+        if (!this.himd) await this.initHiMD();
         return `HiMD (${this.himd!.getDeviceName()})`;
     }
 
     async getServiceCapabilities() {
-        return [Capability.contentList, Capability.metadataEdit, Capability.requiresManualFlush, Capability.trackDownload, Capability.playbackControl, Capability.trackUpload];
+        return [
+            Capability.contentList,
+            Capability.metadataEdit,
+            Capability.requiresManualFlush,
+            Capability.trackDownload,
+            Capability.playbackControl,
+            Capability.trackUpload,
+            Capability.himdTitles,
+        ];
     }
 
     async pair() {
         const device = await navigator.usb.requestDevice({ filters: DevicesIds });
         await device.open();
-        this.fsDriver = new UMSCHiMDFilesystem(device as any);
+        await device.reset();
+        this.fsDriver = new UMSCHiMDFilesystem(device);
         return true;
     }
 
     async initHiMD(): Promise<void> {
         await this.fsDriver!.init();
         this.himd = await HiMD.init(this.fsDriver!);
-        Object.defineProperty(window, 'signHiMDDisc', {
-            configurable: true, writable: true, value: async () => {
+        Object.defineProperty(global, 'signHiMDDisc', {
+            configurable: true,
+            writable: true,
+            value: async () => {
                 // Regenerate all MACs, rewrite track index, rewrite MCLIST
-                console.log("NOTICE: It's impossible to re-sign MP3 audio.\nMP3s need to instead be re-encrypted.\nPlease download the MP3 files from the working disc, and reupload them here");
+                console.log(
+                    "NOTICE: It's impossible to re-sign MP3 audio.\nMP3s need to instead be re-encrypted.\nPlease download the MP3 files from the working disc, and reupload them here"
+                );
                 const session = new UMSCHiMDSession(this.fsDriver!.driver, this.himd!);
                 await session.performAuthentication();
-                console.log("Authenticated");
+                console.log('Authenticated');
                 for (let i = 0; i < this.himd!.getTrackCount(); i++) {
                     const slot = this.himd!.trackIndexToTrackSlot(i);
                     const track = this.himd!.getTrack(slot);
-                    if (getCodecName(track) === "MP3") {
+                    if (getCodecName(track) === 'MP3') {
                         track.mac.fill(0);
                         session.allMacs!.set(track.mac, (slot - 1) * 8);
                     } else {
@@ -403,11 +476,11 @@ export class HiMDFullService extends HiMDRestrictedService {
                     this.himd!.writeTrack(slot, track);
                     console.log(`Rewritten MAC for track ${slot}@${i}`);
                 }
-                console.log("All MACs rewritten. Finalizing the session");
+                console.log('All MACs rewritten. Finalizing the session');
                 await session.finalizeSession();
-                console.log("Session finalized! The disc should now be signed.");
+                console.log('Session finalized! The disc should now be signed.');
                 await this.himd!.flush();
-            }
+            },
         });
     }
 
@@ -419,8 +492,17 @@ export class HiMDFullService extends HiMDRestrictedService {
         }
     }
 
-    async upload(title: TitleParameter, fullWidthTitle: string, data: ArrayBuffer, format: Codec, progressCallback: (progress: { written: number; encrypted: number; total: number; }) => void): Promise<void> {
-        debugger;
+    async finalize(): Promise<void> {
+        await this.fsDriver?.driver?.close();
+    }
+
+    async upload(
+        title: TitleParameter,
+        fullWidthTitle: string,
+        data: ArrayBuffer,
+        format: Codec,
+        progressCallback: (progress: { written: number; encrypted: number; total: number }) => void
+    ): Promise<void> {
         if (format.codec === 'MP3') {
             await super.upload(title, fullWidthTitle, data, format, progressCallback);
         } else {
@@ -428,35 +510,43 @@ export class HiMDFullService extends HiMDRestrictedService {
                 this.session = new UMSCHiMDSession(this.fsDriver!.driver, this.himd!);
                 await this.session.performAuthentication();
             }
-            const stream = new HiMDWriteStream(
-                this.himd!,
-                this.atdata!,
-                true,
-            );
-            const titleObject = title as { title?: string | undefined; album?: string | undefined; artist?: string | undefined; };
+            const stream = new HiMDWriteStream(this.himd!, this.atdata!, true);
+            const titleObject = title as { title?: string | undefined; album?: string | undefined; artist?: string | undefined };
             let frameSize;
-            if (format.codec === "LP2") {
-                format = { codec: "AT3", bitrate: 66 };
-            } else if (format.codec === "LP4") {
-                format = { codec: "AT3", bitrate: 132 };
+            if (format.codec === 'LP2') {
+                format = { codec: 'AT3', bitrate: 66 };
+            } else if (format.codec === 'LP4') {
+                format = { codec: 'AT3', bitrate: 132 };
             }
             switch (format.codec) {
-                case 'A3+': frameSize = HiMDKBPSToFrameSize.atrac3plus[format.bitrate!];
+                case 'A3+':
+                    frameSize = HiMDKBPSToFrameSize.atrac3plus[format.bitrate!];
                     break;
-                case 'AT3': frameSize = HiMDKBPSToFrameSize.atrac3[format.bitrate!];
+                case 'AT3':
+                    frameSize = HiMDKBPSToFrameSize.atrac3[format.bitrate!];
                     break;
-                case 'PCM': frameSize = 0;
+                case 'PCM':
+                    frameSize = 0;
                     break;
-                default: throw new HiMDError("Invalid format");
+                default:
+                    throw new HiMDError('Invalid format');
             }
             const codecInfo = generateCodecInfo(format.codec, frameSize);
-            await uploadMacDependent(this.himd!, this.session!, stream, data, codecInfo, titleObject, ({ byte, totalBytes }: { byte: number, totalBytes: number }) => {
-                progressCallback({
-                    written: byte,
-                    encrypted: byte,
-                    total: totalBytes,
-                });
-            });
+            await uploadMacDependent(
+                this.himd!,
+                this.session!,
+                stream,
+                data,
+                codecInfo,
+                titleObject,
+                ({ byte, totalBytes }: { byte: number; totalBytes: number }) => {
+                    progressCallback({
+                        written: byte,
+                        encrypted: byte,
+                        total: totalBytes,
+                    });
+                }
+            );
         }
     }
 }

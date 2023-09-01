@@ -68,6 +68,10 @@ async function createWindow() {
                             },
                         },
                         {
+                            label: 'Open DevTools',
+                            click: () => window.webContents.openDevTools(),
+                        },
+                        {
                             label: 'Exit',
                             accelerator: "CmdOrCtrl+Q",
                             role: "quit",
@@ -151,7 +155,7 @@ function traverseObject(window: BrowserWindow, objectFactory: () => any, namespa
             }
         });
     });
-    return defined;
+    return Array.from(defined).map(e => namespace + e);
 }
 
 async function integrate(window: BrowserWindow) {
@@ -179,8 +183,7 @@ async function integrate(window: BrowserWindow) {
     let currentObj = service as any;
     console.log(currentObj);
 
-    const defList: string[] = [];
-    traverseObject(window, () => currentObj, "_netmd_").forEach((n) => defList.push('_netmd_' + n));
+    const defList = traverseObject(window, () => currentObj, "_netmd_");
     ipcMain.handle('_netmd__definedParameters', () => defList);
 
     let alreadySwitched = false;
@@ -192,11 +195,11 @@ async function integrate(window: BrowserWindow) {
         if (alreadySwitched) return factoryDefList;
         alreadySwitched = true;
 
-        traverseObject(
+        factoryDefList = traverseObject(
             window,
             () => factoryIface,
             "_factory__"
-        ).forEach((e) => factoryDefList.push(e));
+        );
 
 
         // exploitDownloadTrack uses nested objects with callbacks, and callbacks with return values.
@@ -236,8 +239,7 @@ async function integrate(window: BrowserWindow) {
 
     const himdService: any = new EWMDHiMD({ debug: true });
     if(process.platform !== 'darwin'){
-        const himdDeflist: string[] = [];
-        traverseObject(window, () => himdService, "_himd_").forEach((n) => himdDeflist.push('_himd_' + n));
+        const himdDeflist = traverseObject(window, () => himdService, "_himd_");
         ipcMain.handle('_himd__definedParameters', () => himdDeflist);    
     } else {
         const connection = new Connection();
@@ -286,7 +288,7 @@ async function integrate(window: BrowserWindow) {
         return await (await fetch(url, parameters)).text();
     });
 
-    window.webContents.openDevTools();
+    ipcMain.handle('_signHiMDDisc', async () => await (global as any).signHiMDDisc());
 }
 
 app.whenReady().then(() => {
