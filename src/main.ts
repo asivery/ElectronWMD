@@ -212,14 +212,19 @@ async function integrate(window: BrowserWindow) {
             handleBadSectorResolve = null;
             shouldAbortAtracDownload = false;
 
+            const enableHandleBadSector = allArgs[3].handleBadSector;
+            const enableShouldCancelImmediately = allArgs[3].handleBadSector;
+
             allArgs[3] = {
                 ...allArgs[3],
-                handleBadSector: allArgs[3].handleBadSector ? async (...args: any[]) => {
+                handleBadSector: async (...args: any[]) => {
                     window.webContents.send('_atracdl_callback_handleBadSector', ...args);
                     return await new Promise<"reload" | "abort" | "skip" | "yieldanyway">(res => handleBadSectorResolve = res);
-                } : undefined,
-                shouldCancelImmediately: allArgs[3].handleBadSector ? () => shouldAbortAtracDownload : undefined,
+                },
+                shouldCancelImmediately: () => shouldAbortAtracDownload,
             };
+            if(!enableHandleBadSector) delete allArgs[3].handleBadSector;
+            if(!enableShouldCancelImmediately) delete allArgs[3].shouldCancelImmediately;
             allArgs[2] = async (...args: any[]) =>
                 window.webContents.send('_callback', `_factory__exploitDownloadTrack_callback2`, ...args);
 

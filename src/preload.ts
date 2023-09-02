@@ -59,8 +59,12 @@ import { NetMDFactoryService } from './wmd/original/services/interfaces/netmd';
             const handleBadSector = args[3].handleBadSector;
             callbacks[`_factory__exploitDownloadTrack_callback2`] = args[2];
 
-            args[3].shouldCancelImmediately = shouldCancelImmediately ? { interprocessType: 'nestedFunction' } as any : null;
-            args[3].handleBadSector = handleBadSector ? { interprocessType: 'nestedFunction' } as any : null;
+            args[3].shouldCancelImmediately = { interprocessType: 'nestedFunction' } as any;
+            args[3].handleBadSector = { interprocessType: 'nestedFunction' } as any;
+
+            if(!shouldCancelImmediately) delete args[3].shouldCancelImmediately;
+            if(!handleBadSector) delete args[3].handleBadSector;
+
             args[2] = { interprocessType: 'function' } as any;
             if(shouldCancelImmediately){
                 interval = setInterval(() => {
