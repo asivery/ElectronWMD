@@ -9,6 +9,7 @@ import { Worker } from 'worker_threads';
 import { makeAsyncDecryptor } from "himd-js/dist/node-crypto-worker";
 import { DevicesIds, dumpTrack, generateCodecInfo, HiMDError, HiMDKBPSToFrameSize, HiMDWriteStream, UMSCHiMDFilesystem, UMSCHiMDSession, uploadMacDependent } from "himd-js";
 import { WebUSBDevice, findByIds } from 'usb';
+import { CryptoProvider } from "himd-js/dist/workers";
 
 export class EWMDNetMD extends NetMDUSBService {
     override async upload(
@@ -53,6 +54,8 @@ export class EWMDNetMD extends NetMDUSBService {
 }
 
 export class EWMDHiMD extends HiMDFullService {
+    protected worker: CryptoProvider | null = null;
+    
     async download(index: number, progressCallback: (progress: { read: number; total: number; }) => void): Promise<{ format: DiscFormat; data: Uint8Array; } | null> {
         const trackNumber = this.himd!.trackIndexToTrackSlot(index);
         const nodeWorker = await makeAsyncDecryptor(new Worker(
@@ -67,8 +70,20 @@ export class EWMDHiMD extends HiMDFullService {
         return { format: DiscFormat.spStereo, data: concatUint8Arrays(...blocks) };
     }
 
+    async prepareUpload(): Promise<void> {
+        await super.prepareUpload();
+        this.worker = await makeAsyncDecryptor(new Worker(
+            path.join(__dirname, '..', '..', 'node_modules', 'himd-js', 'dist', 'node-crypto-worker.js')
+        ));
+    }
+
+    async finalizeUpload(): Promise<void> {
+        await super.finalizeUpload();
+        this.worker?.close();
+        this.worker = null
+    }
+
     async upload(title: TitleParameter, fullWidthTitle: string, data: ArrayBuffer, format: Codec, progressCallback: (progress: { written: number; encrypted: number; total: number; }) => void): Promise<void> {
-        debugger;
         if (format.codec === 'MP3') {
             // This will subsequently call HiMDFullService's super
             await super.upload(title, fullWidthTitle, data, format, progressCallback);
@@ -98,10 +113,7 @@ export class EWMDHiMD extends HiMDFullService {
                     break;
                 default: throw new HiMDError("Invalid format");
             }
-            const nodeWorker = await makeAsyncDecryptor(new Worker(
-                path.join(__dirname, '..', '..', 'node_modules', 'himd-js', 'dist', 'node-crypto-worker.js')
-            ));
-    
+
             const codecInfo = generateCodecInfo(format.codec, frameSize);
             await uploadMacDependent(this.himd!, this.session!, stream, data, codecInfo, titleObject, ({ byte, totalBytes }: { byte: number, totalBytes: number }) => {
                 progressCallback({
@@ -109,7 +121,7 @@ export class EWMDHiMD extends HiMDFullService {
                     encrypted: byte,
                     total: totalBytes,
                 });
-            }, nodeWorker);
+            }, this.worker);
         }
     }
 

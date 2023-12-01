@@ -12,6 +12,8 @@ import { Connection, getSocketName, startServer } from './macos/server-bootstrap
 
 const getOfRenderer = (...p: string[]) => path.join(__dirname, '..', 'renderer', ...p);
 
+app.commandLine.appendSwitch('ignore-certificate-errors');
+
 async function createWindow() {
     const window = new BrowserWindow({
         width: 1280,
