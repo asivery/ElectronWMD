@@ -118,7 +118,14 @@ async function createWindow() {
 
     window.webContents.session.on('will-download', async (event, item, contents) => {
         if (downloadPath) {
-            item.setSavePath(path.join(downloadPath, item.getFilename()));
+            const baseFilename = item.getFilename();
+            let filename = path.join(downloadPath, baseFilename);
+            const { name, ext } = path.parse(baseFilename);
+            let i = 1;
+            while(fs.existsSync(filename)){
+                filename = path.join(downloadPath, `${name} (${i++})${ext}`);
+            }
+            item.setSavePath(filename);
         }
     });
 }

@@ -67,6 +67,7 @@ export class EWMDHiMD extends HiMDFullService {
             blocks.push(data);
             progressCallback({ read: blocks.length, total });
         }
+        nodeWorker.close();
         return { format: DiscFormat.spStereo, data: concatUint8Arrays(...blocks) };
     }
 
