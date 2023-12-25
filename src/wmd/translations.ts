@@ -1,15 +1,12 @@
 import { HiMDFullService } from "./original/services/interfaces/himd";
-import { Codec, NetMDUSBService, TitleParameter, WireformatDict } from "./original/services/interfaces/netmd";
+import { NetMDUSBService } from "./original/services/interfaces/netmd";
 
 import { makeGetAsyncPacketIteratorOnWorkerThread } from 'netmd-js/dist/node-encrypt-worker';
-import { DiscFormat, MDTrack } from "netmd-js";
-import { concatUint8Arrays, sanitizeFullWidthTitle, sanitizeHalfWidthTitle } from "netmd-js/dist/utils";
 import path from 'path';
 import { Worker } from 'worker_threads';
 import { makeAsyncWorker } from "himd-js/dist/node-crypto-worker";
-import { DevicesIds, dumpTrack, generateCodecInfo, HiMDError, HiMDKBPSToFrameSize, HiMDWriteStream, UMSCHiMDFilesystem, UMSCHiMDSession, uploadMacDependent } from "himd-js";
+import { DevicesIds, UMSCHiMDFilesystem } from "himd-js";
 import { WebUSBDevice, findByIds } from 'usb';
-import { CryptoProvider } from "himd-js/dist/workers";
 
 export class EWMDNetMD extends NetMDUSBService {
     override getWorkerForUpload() {
