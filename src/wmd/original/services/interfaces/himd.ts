@@ -1,7 +1,8 @@
+// This file has been auto-generated! DO NOT EDIT!
 import { Mutex } from 'async-mutex';
 import { DeviceStatus, DiscFormat, TrackFlag } from 'netmd-js';
 import { Logger } from 'netmd-js/dist/logger';
-import { makeAsyncDecryptor } from 'himd-js/dist/web-crypto-worker';
+import { makeAsyncWorker } from 'himd-js/dist/web-crypto-worker';
 import {
     HiMD,
     FSAHiMDFilesystem,
@@ -41,8 +42,9 @@ import {
 } from './netmd';
 import { concatUint8Arrays } from 'netmd-js/dist/utils';
 import { recomputeGroupsAfterTrackMove } from '../../utils';
+import { CryptoProvider } from 'himd-js/dist/workers';
 
-const Worker = null as any;
+const Worker = null as any; // eslint-disable-line import/no-webpack-loader-syntax
 
 export class HiMDSpec implements MinidiscSpec {
     constructor(private unrestricted: boolean = false) {
@@ -138,6 +140,9 @@ export class HiMDRestrictedService extends NetMDService {
             halfWidth: (track.album ?? '').length + (track.artist ?? '').length + (track.title ?? '').length,
             fullWidth: 0,
         };
+    }
+    getWorker(): any[]{
+        return [new Worker(), makeAsyncWorker];
     }
 
     async getDeviceStatus(): Promise<DeviceStatus> {
@@ -338,13 +343,16 @@ export class HiMDRestrictedService extends NetMDService {
         progressCallback: (progress: { read: number; total: number }) => void
     ): Promise<{ format: DiscFormat; data: Uint8Array } | null> {
         const trackNumber = this.himd!.trackIndexToTrackSlot(index);
-        const webWorker = await makeAsyncDecryptor(new Worker());
+        let [w, creator] = this.getWorker();
+        const webWorker = await creator(w);
         const info = dumpTrack(this.himd!, trackNumber, webWorker);
         const blocks: Uint8Array[] = [];
         for await (let { data, total } of info.data) {
             blocks.push(data);
             progressCallback({ read: blocks.length, total });
         }
+        webWorker.close();
+        w.terminate();
         return { format: DiscFormat.spStereo, data: concatUint8Arrays(...blocks) };
     }
 
@@ -412,11 +420,12 @@ export class HiMDRestrictedService extends NetMDService {
         return Promise.resolve();
     }
     getPosition(): Promise<number[] | null> {
-        throw new Error('Method not implemented.');
+        return Promise.resolve(null);
     }
 }
 
 export class HiMDFullService extends HiMDRestrictedService {
+    protected worker: CryptoProvider | null = null;
     protected session: UMSCHiMDSession | null = null;
     protected fsDriver?: UMSCHiMDFilesystem;
     constructor(p: { debug: boolean }) {
@@ -434,7 +443,6 @@ export class HiMDFullService extends HiMDRestrictedService {
             Capability.metadataEdit,
             Capability.requiresManualFlush,
             Capability.trackDownload,
-            Capability.playbackControl,
             Capability.trackUpload,
             Capability.himdTitles,
         ];
@@ -443,7 +451,11 @@ export class HiMDFullService extends HiMDRestrictedService {
     async pair() {
         const device = await navigator.usb.requestDevice({ filters: DevicesIds });
         await device.open();
-        await device.reset();
+        try{
+            await device.reset();
+        }catch(ex){
+            console.log(ex);
+        }
         this.fsDriver = new UMSCHiMDFilesystem(device);
         return true;
     }
@@ -451,7 +463,7 @@ export class HiMDFullService extends HiMDRestrictedService {
     async initHiMD(): Promise<void> {
         await this.fsDriver!.init();
         this.himd = await HiMD.init(this.fsDriver!);
-        Object.defineProperty(global, 'signHiMDDisc', {
+        Object.defineProperty(window, 'signHiMDDisc', {
             configurable: true,
             writable: true,
             value: async () => {
@@ -490,10 +502,18 @@ export class HiMDFullService extends HiMDRestrictedService {
             await this.session!.finalizeSession();
             this.session = null;
         }
+        this.worker?.close();
+        this.worker = null;
     }
 
     async finalize(): Promise<void> {
         await this.fsDriver?.driver?.close();
+    }
+
+    async prepareUpload(): Promise<void> {
+        await super.prepareUpload();
+        let [w, creator] = this.getWorker();
+        this.worker = await creator(w);
     }
 
     async upload(
@@ -545,7 +565,8 @@ export class HiMDFullService extends HiMDRestrictedService {
                         encrypted: byte,
                         total: totalBytes,
                     });
-                }
+                },
+                this.worker!
             );
         }
     }

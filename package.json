@@ -4,7 +4,7 @@
   "description": "Electron version of WebMinidisc Pro",
   "main": "dist/main.js",
   "scripts": {
-    "build": "./build-renderer.sh && ./patch-dependencies.sh && tsc",
+    "build": "./build-renderer.sh && ./run-fixes.sh && tsc",
     "start": "npm run build && NODE_ENV=development electron ./dist/main.js",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder -wl --x64 && electron-builder -w --ia32",
@@ -36,7 +36,7 @@
   "dependencies": {
     "async-mutex": "^0.3.2",
     "electron-store": "^8.1.0",
-    "himd-js": "^0.1.10",
+    "himd-js": "^0.1.11",
     "jconv": "^0.1.5",
     "jsbi": "^3.2.5",
     "msgpackr": "^1.9.5",
