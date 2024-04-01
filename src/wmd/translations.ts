@@ -7,6 +7,7 @@ import { Worker } from 'worker_threads';
 import { makeAsyncWorker } from "himd-js/dist/node-crypto-worker";
 import { DevicesIds, UMSCHiMDFilesystem } from "himd-js";
 import { WebUSBDevice, findByIds } from 'usb';
+import { unmountAll } from "../unmount-drives";
 
 export class EWMDNetMD extends NetMDUSBService {
     override getWorkerForUpload() {
@@ -24,12 +25,16 @@ export class EWMDHiMD extends HiMDFullService {
     }
     
     async pair() {
-        let legacyDevice;
-        for(let { vendorId, deviceId } of DevicesIds){
+        let legacyDevice, vendorId, deviceId;
+        for({ vendorId, deviceId } of DevicesIds){
             legacyDevice = findByIds(vendorId, deviceId);
             if(legacyDevice) break;
         }
         if(!legacyDevice) return false;
+
+        if(['darwin', 'linux'].includes(process.platform)){
+            await unmountAll(vendorId, deviceId);
+        }
 
         legacyDevice.open();
         const iface = legacyDevice.interface(0);
