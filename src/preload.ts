@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { NetMDFactoryService } from './wmd/original/services/interfaces/netmd';
+import { Codec, NetMDFactoryService } from './wmd/original/services/interfaces/netmd';
+import type { Setting } from './main';
 
 (async () => {
     console.group('PRELOAD');
@@ -101,13 +102,42 @@ import { NetMDFactoryService } from './wmd/original/services/interfaces/netmd';
         await ipcRenderer.invoke("_signHiMDDisc");
     }
 
+    async function invokeLocalEncoder(encoderPath: string, data: ArrayBuffer, sourceFilename: string, parameters: { format: Codec, enableReplayGain?: boolean }) {
+        return await ipcRenderer.invoke("invokeLocalEncoder", encoderPath, data, sourceFilename, parameters);
+    }
+
+    function openFileHostDialog(filters: string[], directory?: boolean): Promise<string | null> {
+        return ipcRenderer.invoke('openFileHostDialog', filters, directory);
+    }
+
     contextBridge.exposeInMainWorld('native', {
+        unrestrictedFetchJSON,
+
+        getSettings: loadSettings,
+
         interface: iface,
         himdFullInterface: himdIface,
-        unrestrictedFetchJSON,
         signHiMDDisc,
+        openFileHostDialog,
+
+        invokeLocalEncoder,
+
+        _debug_himdPullFile: (a: string, b: string) => ipcRenderer.invoke('_debug_himdPullFile', a, b),
+        _debug_himdList: (a: string) => ipcRenderer.invoke('_debug_himdList', a),
     });
 
     console.log('====PRELOAD COMPLETE====');
     console.groupEnd();
 })();
+
+interface SettingInterface extends Setting {
+    update(newValue: boolean | string | number): Promise<void>;
+}
+
+async function loadSettings(): Promise<SettingInterface[]>{
+    const settings: Setting[] = await ipcRenderer.invoke("fetch_settings_list");
+    return settings
+        .map(e => ({...e, update: async (newValue: any) => {
+            await ipcRenderer.invoke("setting_update", e.name, newValue);
+        }}));
+}

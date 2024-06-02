@@ -1,18 +1,148 @@
-import { app, BrowserWindow, ipcMain, Menu, protocol, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, protocol, dialog, FileFilter } from 'electron';
 import { WebUSB } from 'usb';
 import { DevicesIds as  NetMDDevicesIds } from 'netmd-js';
 import { DevicesIds as  HiMDDevicesIds } from 'himd-js';
 import path from 'path';
 import fs from 'fs';
 import { EWMDHiMD, EWMDNetMD } from './wmd/translations';
-import { NetMDFactoryService } from './wmd/original/services/interfaces/netmd';
+import { Codec, NetMDFactoryService } from './wmd/original/services/interfaces/netmd';
 import fetch from 'node-fetch';
 import Store from 'electron-store';
 import { Connection, getSocketName, startServer } from './macos/server-bootstrap';
+import { spawn } from 'child_process';
 
 const getOfRenderer = (...p: string[]) => path.join(__dirname, '..', 'renderer', ...p);
 
+async function ewmdOpenDialog(window: BrowserWindow, filters: FileFilter[], directory?: boolean){
+    const res = await dialog.showOpenDialog(window, { filters, properties: [directory ? 'openDirectory' : 'openFile'] });
+    if(res.canceled) return null;
+    else return res.filePaths[0];
+}
+
 app.commandLine.appendSwitch('ignore-certificate-errors');
+
+export interface Setting {
+    name: string;
+    family: string;
+    type: 'boolean' | 'string' | 'number' | 'action' | 'hostFilePath' | 'hostDirPath';
+    state: boolean | string | number;
+}
+
+export interface SettingFunction extends Setting {
+    handleChange(newValue: Setting['state']): Promise<void>;
+}
+
+function setupSettings(window: BrowserWindow) {
+    const store = new Store();
+
+    const _settings: (SettingFunction | null)[] = [
+        {
+            family: 'Functionality',
+            name: 'Open Devtools',
+            async handleChange(){
+                window.webContents.openDevTools();
+            },
+            state: 0,
+            type: 'action',
+        },
+        {
+            family: 'Functionality',
+            name: 'Use a Default Download Directory',
+            async handleChange(newVal: boolean){
+                if(newVal) {
+                    // Enabled
+                    if(!store.get('downloadPath', null)) { // Match both '' and null
+                        // Ask the user for the path
+                        const userProvided = await ewmdOpenDialog(window, [], true);
+                        if(!userProvided) return; // If the user cancelled, do not write any changes
+                        store.set('downloadPath', userProvided);
+                    }
+                }
+                store.set('useDownloadPath', newVal);
+            },
+            state: store.get('useDownloadPath', false) as boolean,
+            type: 'boolean',
+        },
+        store.get('useDownloadPath', false) ? {
+            family: 'Functionality',
+            name: 'Default Download Directory',
+            async handleChange(newVal: string){
+                if(!newVal && store.get('downloadPath', '')){
+                    // If the user cancelled, but there's a path set already, do not do anything
+                    return;
+                }
+                if(!newVal){
+                    // The user cancelled, and there's nothing set (edge case)
+                    // Disable the menu option
+                    store.set('useDownloadPath', false);
+                }
+                store.set('downloadPath', newVal);
+            },
+            type: 'hostDirPath',
+            state: store.get('downloadPath', '') as string,
+        }: null,
+    ];
+    const settings = _settings.filter(e => e);
+
+    ipcMain.removeHandler('setting_update');
+    ipcMain.removeHandler('fetch_settings_list');
+
+    ipcMain.handle("setting_update", async (_, name: string, newValue: Setting['state']) => {
+        const setting = settings.find(e => e.name === name);
+        if((setting as any).handleChange){
+            await (setting as any).handleChange(newValue);
+            setupSettings(window);
+        }
+    });
+
+    ipcMain.handle("fetch_settings_list", () => {
+        return settings.map(e => {
+            let q = { ...e } as any;
+            delete q['handleChange'];
+            return q;
+        });
+    });
+}
+
+function setupEncoder() {
+    function invoke(program: string, args: string[]): Promise<boolean> {
+        return new Promise<boolean>(res => {
+            const name = path.basename(program);
+            const process = spawn(program, args);
+            process.on('close', (e) => res(e === 0));
+            process.stdout.on('data', e => console.log(`[${name} - STDOUT]: ${e.toString().trim()}`));
+            process.stderr.on('data', e => console.log(`[${name} - STDERR]: ${e.toString().trim()}`));
+        });
+    }
+
+    ipcMain.handle("invokeLocalEncoder", async (_, encoderPath: string, data: ArrayBuffer, sourceFilename: string, parameters: { format: Codec, enableReplayGain?: boolean }) => {
+        // Pipeline:
+        // inFile.ANY ==(ffmpeg)==> inFile.wav ==(encoder)==> outFile.wav
+        const tempDir = fs.mkdtempSync('atracenc');
+        const inFilePath = path.join(tempDir, sourceFilename);
+        fs.writeFileSync(inFilePath, new Uint8Array(data));
+        const intermediateFilePath = path.join(tempDir, "intermediate.wav");
+        const ffmpegArgs = ['-i', inFilePath];
+        if(parameters.enableReplayGain){
+            ffmpegArgs.push('-af', 'volume=replaygain=track');
+        }
+        ffmpegArgs.push('-ac', '2', '-ar', '44100', '-f', 'wav', intermediateFilePath);
+        console.log(`Executing ffmpeg. ARGS: ${ffmpegArgs}`);
+        await invoke('ffmpeg', ffmpegArgs);
+
+        const outFilePath = path.join(tempDir, "output.wav");
+        const bitrateString = (parameters.format.bitrate! + '');
+        const allArgs = ['-e', '-br', bitrateString, intermediateFilePath, outFilePath];
+        console.log(`Executing encoder EXE: ${encoderPath}. ARGS: ${allArgs}`);
+        await invoke(encoderPath, allArgs);
+        const rawData = new Uint8Array(fs.readFileSync(outFilePath)).buffer;
+        fs.unlinkSync(outFilePath);
+        fs.unlinkSync(inFilePath);
+        fs.unlinkSync(intermediateFilePath);
+        fs.rmdirSync(tempDir);
+        return rawData;
+    });
+}
 
 async function createWindow() {
     const window = new BrowserWindow({
@@ -34,90 +164,13 @@ async function createWindow() {
 
     const store = new Store();
 
-    let downloadPath = store.get('downloadPath', null) as string | null;
-
-    const setupMenu = () =>
-        Menu.setApplicationMenu(
-            Menu.buildFromTemplate(
-                [{
-                    label: 'File',
-                    submenu: [
-                        {
-                            label: 'Reload',
-                            accelerator: "CmdOrCtrl+R",
-                            role: "forceReload",
-                            click: () => window.reload(),
-                        },
-                        {
-                            type: 'checkbox',
-                            accelerator: "CmdOrCtrl+O", //please note: 'role' not required for this menu item, nor is such a role available for this action.
-                            checked: downloadPath !== null,
-                            label: downloadPath === null ? 'Set Default Download Directory' : `Current Download Directory: ${downloadPath}`,
-                            click: () => {
-                                if (downloadPath !== null) {
-                                    store.set('downloadPath', null);
-                                    downloadPath = null;
-                                } else {
-                                    const result = dialog.showOpenDialogSync(window, {
-                                        title: 'Select Default Download Directory',
-                                        properties: ['openDirectory'],
-                                    });
-                                    if (!result || result.length === 0) return;
-                                    downloadPath = result[0];
-                                    store.set('downloadPath', downloadPath);
-                                }
-                                setupMenu();
-                            },
-                        },
-                        {
-                            label: 'Open DevTools',
-                            click: () => window.webContents.openDevTools(),
-                        },
-                        {
-                            label: 'Exit',
-                            accelerator: "CmdOrCtrl+Q",
-                            role: "quit",
-                            click: () => window.close(),
-                        },
-                ]}, {
-                    label: 'Edit',
-                    submenu: [
-                        {   label: "Undo", 
-                            accelerator: "CmdOrCtrl+Z", 
-                            role: "undo", 
-                        },
-                        {   label: "Redo",
-                            accelerator: "Shift+CmdOrCtrl+Z",
-                            role: "redo", 
-                        },
-                        {
-                            type: "separator", 
-                        },
-                        {   label: "Cut",
-                            accelerator: "CmdOrCtrl+X",
-                            role: "cut",
-                        },
-                        {   label: "Copy",
-                            accelerator: "CmdOrCtrl+C",
-                            role: "copy",
-                        },
-                        {   label: "Paste",
-                            accelerator: "CmdOrCtrl+V",
-                            role: "paste",
-                        },
-                        {   label: "Select All",
-                            accelerator: "CmdOrCtrl+A",
-                            role: "selectAll",
-                        },
-                    ]},
-            ])
-        );
-
-    setupMenu();
-    window.setMenuBarVisibility(true);
+    window.setMenuBarVisibility(false);
 
     window.webContents.session.on('will-download', async (event, item, contents) => {
-        if (downloadPath) {
+        let downloadPath = store.get('downloadPath', '') as string;
+        let useDownloadPath = store.get('useDownloadPath', false) as boolean;
+
+        if (downloadPath && useDownloadPath) {
             const baseFilename = item.getFilename();
             let filename = path.join(downloadPath, baseFilename);
             const { name, ext } = path.parse(baseFilename);
@@ -251,7 +304,7 @@ async function integrate(window: BrowserWindow) {
         return factoryDefList;
     });
 
-    const himdService: any = new EWMDHiMD({ debug: true });
+    const himdService = new EWMDHiMD({ debug: true });
     if(process.platform !== 'darwin'){
         const himdDeflist = traverseObject(window, () => himdService, "_himd_");
         ipcMain.handle('_himd__definedParameters', () => himdDeflist);    
@@ -302,7 +355,32 @@ async function integrate(window: BrowserWindow) {
         return await (await fetch(url, parameters)).text();
     });
 
-    ipcMain.handle('_signHiMDDisc', async () => await (global as any).signHiMDDisc());
+    ipcMain.handle('_signHiMDDisc', () => (global as any).signHiMDDisc());
+
+    ipcMain.handle('_debug_himdPullFile', async (e, a: string, b: string) => {
+        console.log(`Pulling HiMD file ${a} to local ${b}`);
+        const handle = await himdService.fsDriver!.fatfs!.open(a, false);
+        if(!handle){
+            console.log("No file!");
+        }
+        fs.writeFileSync(b, await handle.readAll());
+        await handle.close();
+    });
+    ipcMain.handle('_debug_himdList', async (e, a: string) => {
+        console.log(`Listing HiMD dir ${a}`);
+        const list = await himdService.fsDriver!.fatfs!.listDir(a);
+        if(!list){
+            console.log("No such dir!");
+        }
+        console.log(list.join(', '));
+    });
+
+    ipcMain.handle("openFileHostDialog", async (_, filters: { name: string, extensions: string[] }[], directory?: boolean): Promise<string | null> => {
+        return ewmdOpenDialog(window, filters, directory);     
+    });
+
+    setupSettings(window);
+    setupEncoder();
 }
 
 app.whenReady().then(() => {
