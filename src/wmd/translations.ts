@@ -13,11 +13,12 @@ export class EWMDNetMD extends NetMDUSBService {
     override getWorkerForUpload() {
         return [new Worker(
             path.join(__dirname, '..', '..', 'node_modules', 'netmd-js', 'dist', 'node-encrypt-worker.js')
-        ), makeGetAsyncPacketIteratorOnWorkerThread];
+        ), makeGetAsyncPacketIteratorOnWorkerThread] as any;
     }
 }
 
 export class EWMDHiMD extends HiMDFullService {
+    public fsDriver?: UMSCHiMDFilesystem;
     override getWorker(): any[] {
         return [new Worker(
             path.join(__dirname, '..', '..', 'node_modules', 'himd-js', 'dist', 'node-crypto-worker.js')
@@ -25,6 +26,7 @@ export class EWMDHiMD extends HiMDFullService {
     }
     
     async pair() {
+        this.bypassFSCoherencyChecks = process.env.EWMD_HIMD_BYPASS_COHERENCY_CHECK === 'true';
         let legacyDevice, vendorId, deviceId;
         for({ vendorId, deviceId } of DevicesIds){
             legacyDevice = findByIds(vendorId, deviceId);

@@ -16,7 +16,6 @@ import {
     rewriteDiscGroups,
     DiscFlag,
     MDSession,
-    EKBOpenSource,
     NetMDFactoryInterface,
     readUTOCSector,
     writeUTOCSector,
@@ -58,8 +57,7 @@ import {
 } from 'netmd-exploits';
 import netmdExploits from 'netmd-exploits';
 import { HiMDCodecName } from 'himd-js';
-
-const Worker = null as any; // eslint-disable-line import/no-webpack-loader-syntax
+const Worker = null as any;
 
 export enum Capability {
     contentList,
@@ -181,7 +179,7 @@ export class DefaultMinidiscSpec implements MinidiscSpec {
     }
 
     translateDefaultMeasuringModeTo(_mode: Codec, defaultMeasuringModeDuration: number): number {
-        let mode = this.fixupCodec(_mode);
+        const mode = this.fixupCodec(_mode);
         return (
             {
                 SP: 1,
@@ -192,7 +190,7 @@ export class DefaultMinidiscSpec implements MinidiscSpec {
         );
     }
     translateToDefaultMeasuringModeFrom(_mode: Codec, durationInMode: number): number {
-        let mode = this.fixupCodec(_mode);
+        const mode = this.fixupCodec(_mode);
         return (
             durationInMode /
             {
@@ -247,6 +245,7 @@ export abstract class NetMDService {
     abstract gotoTrack(index: number): Promise<void>;
     abstract gotoTime(index: number, hour: number, minute: number, second: number, frame: number): Promise<void>;
     abstract getPosition(): Promise<number[] | null>;
+    abstract isDeviceConnected(device: USBDevice): boolean;
 
     async factory(): Promise<NetMDFactoryService | null> {
         return null;
@@ -412,7 +411,7 @@ export class NetMDUSBService extends NetMDService {
             // MZ-RH1
             basic.push(Capability.trackDownload);
         }
-        if (await this.netmdInterface?.canEjectDisc()) {
+        if (this.netmdInterface?.netMd.getVendor() === 0x54c && await this.netmdInterface?.canEjectDisc()) {
             basic.push(Capability.discEject);
         }
 
@@ -420,8 +419,7 @@ export class NetMDUSBService extends NetMDService {
         const deviceName = this.netmdInterface?.netMd.getDeviceName();
         if (
             (deviceName?.includes('Sony') &&
-                (deviceName?.includes('MZ-N') || deviceName?.includes('MZ-S1') || deviceName.includes('MZ-RH')) &&
-                !deviceName.includes('DH10') /* && deviceName !== 'Sony MZ-RH1'*/) ||
+                (deviceName?.includes('MZ-N') || deviceName?.includes('MZ-S1') || deviceName.includes('MZ-RH') || deviceName.includes('MZ-DH10P'))) ||
             (deviceName?.includes('Aiwa') && deviceName?.includes('AM-NX')) ||
             deviceName?.includes('PCGA-MDN1')
         ) {
@@ -455,7 +453,7 @@ export class NetMDUSBService extends NetMDService {
 
     async pair() {
         this.dropCachedContentList();
-        let iface = await openNewDevice(navigator.usb, this.logger);
+        const iface = await openNewDevice(navigator.usb, this.logger);
         if (iface === null) {
             return false;
         }
@@ -465,7 +463,7 @@ export class NetMDUSBService extends NetMDService {
 
     async connect() {
         this.dropCachedContentList();
-        let iface = await openPairedDevice(navigator.usb, this.logger);
+        const iface = await openPairedDevice(navigator.usb, this.logger);
         if (iface === null) {
             return false;
         }
@@ -511,8 +509,8 @@ export class NetMDUSBService extends NetMDService {
             await this.netmdInterface!.setTrackTitle(index, sanitizeFullWidthTitle(fullWidthTitle), true);
         }
         const disc = await this.listContentUsingCache();
-        for (let group of disc.groups) {
-            for (let track of group.tracks) {
+        for (const group of disc.groups) {
+            for (const track of group.tracks) {
                 if (track.index === index) {
                     track.title = title;
                     if (fullWidthTitle !== undefined) {
@@ -527,7 +525,7 @@ export class NetMDUSBService extends NetMDService {
     @asyncMutex
     async renameGroup(groupIndex: number, newName: string, newFullWidthName?: string) {
         const disc = await this.listContentUsingCache();
-        let thisGroup = disc.groups.find(g => g.index === groupIndex);
+        const thisGroup = disc.groups.find(g => g.index === groupIndex);
         if (!thisGroup) {
             return;
         }
@@ -543,14 +541,14 @@ export class NetMDUSBService extends NetMDService {
     @asyncMutex
     async addGroup(groupBegin: number, groupLength: number, title: string, fullWidthTitle: string = '') {
         const disc = await this.listContentUsingCache();
-        let ungrouped = disc.groups.find(n => n.title === null);
+        const ungrouped = disc.groups.find(n => n.title === null);
         if (!ungrouped) {
             return; // You can only group tracks that aren't already in a different group, if there's no such tracks, there's no point to continue
         }
 
-        let ungroupedLengthBeforeGroup = ungrouped.tracks.length;
+        const ungroupedLengthBeforeGroup = ungrouped.tracks.length;
 
-        let thisGroupTracks = ungrouped.tracks.filter(n => n.index >= groupBegin && n.index < groupBegin + groupLength);
+        const thisGroupTracks = ungrouped.tracks.filter(n => n.index >= groupBegin && n.index < groupBegin + groupLength);
         ungrouped.tracks = ungrouped.tracks.filter(n => !thisGroupTracks.includes(n));
 
         if (ungroupedLengthBeforeGroup - ungrouped.tracks.length !== groupLength) {
@@ -586,7 +584,7 @@ export class NetMDUSBService extends NetMDService {
             };
             disc.groups.unshift(ungroupedGroup);
         }
-        let groupIndex = disc.groups.findIndex(g => g.index === index);
+        const groupIndex = disc.groups.findIndex(g => g.index === index);
         if (groupIndex >= 0) {
             const deleted = disc.groups.splice(groupIndex, 1)[0];
             ungroupedGroup.tracks = ungroupedGroup.tracks.concat(deleted.tracks);
@@ -616,7 +614,7 @@ export class NetMDUSBService extends NetMDService {
         indexes = indexes.sort();
         indexes.reverse();
         let content = await this.listContentUsingCache();
-        for (let index of indexes) {
+        for (const index of indexes) {
             // Attempt to get panasonics working correctly (MyNameIsX)
             await this.netmdInterface?.getTrackTitle(index, false);
             await this.netmdInterface?.getTrackCount();
@@ -632,7 +630,7 @@ export class NetMDUSBService extends NetMDService {
     async wipeDisc() {
         try {
             await this.netmdInterface!.stop();
-        } catch (ex) {}
+        } catch (ex) { /* empty */ }
         await this.netmdInterface!.eraseDisc();
         this.dropCachedContentList();
     }
@@ -658,8 +656,8 @@ export class NetMDUSBService extends NetMDService {
         if (updateGroups === undefined || updateGroups) {
             await rewriteDiscGroups(this.netmdInterface!, convertDiscToNJS(recomputeGroupsAfterTrackMove(content, src, dst)));
         }
-        for (let group of content.groups) {
-            for (let track of group.tracks) {
+        for (const group of content.groups) {
+            for (const track of group.tracks) {
                 if (track.index === dst) {
                     track.index = src;
                 } else if (track.index === src) {
@@ -674,7 +672,7 @@ export class NetMDUSBService extends NetMDService {
     @asyncMutex
     async prepareUpload() {
         await prepareDownload(this.netmdInterface!);
-        this.currentSession = new MDSession(this.netmdInterface!, new EKBOpenSource());
+        this.currentSession = new MDSession(this.netmdInterface!);
         await this.currentSession.init();
     }
 
@@ -686,7 +684,7 @@ export class NetMDUSBService extends NetMDService {
         this.dropCachedContentList();
     }
 
-    getWorkerForUpload(): any{
+    getWorkerForUpload(): [Worker, typeof makeGetAsyncPacketIteratorOnWorkerThread] {
         return [new Worker(), makeGetAsyncPacketIteratorOnWorkerThread];
     }
 
@@ -698,28 +696,28 @@ export class NetMDUSBService extends NetMDService {
         _format: Codec,
         progressCallback: (progress: { written: number; encrypted: number; total: number }) => void
     ) {
-        let format = _format.codec === 'AT3' ? { codec: _format.bitrate === 66 ? 'LP4' : 'LP2' } :
+        const format = _format.codec === 'AT3' ? { codec: _format.bitrate === 66 ? 'LP4' : 'LP2' } :
                      _format.codec === 'MONO' ? { codec: 'SP' } : _format;
         if (this.currentSession === undefined) {
             throw new Error('Cannot upload without initializing a session first');
         }
-        let total = data.byteLength;
+        const total = data.byteLength;
         let written = 0;
         let encrypted = 0;
         function updateProgress() {
             progressCallback({ written, encrypted, total });
         }
 
-        let [w, creator] = this.getWorkerForUpload();
+        const [w, creator] = this.getWorkerForUpload();
 
-        let webWorkerAsyncPacketIterator = creator(w, ({ encryptedBytes }: { encryptedBytes: number }) => {
+        const webWorkerAsyncPacketIterator = creator(w, ({ encryptedBytes }: { encryptedBytes: number }) => {
             encrypted = encryptedBytes;
             updateProgress();
         });
 
-        let halfWidthTitle = sanitizeHalfWidthTitle(title);
+        const halfWidthTitle = sanitizeHalfWidthTitle(title);
         fullWidthTitle = sanitizeFullWidthTitle(fullWidthTitle);
-        let mdTrack = new MDTrack(halfWidthTitle, WireformatDict[format.codec], data, 0x400, fullWidthTitle, webWorkerAsyncPacketIterator);
+        const mdTrack = new MDTrack(halfWidthTitle, WireformatDict[format.codec], data, 0x400, fullWidthTitle, webWorkerAsyncPacketIterator);
 
         await this.currentSession.downloadTrack(mdTrack, ({ writtenBytes }) => {
             written = writtenBytes;
@@ -786,6 +784,10 @@ export class NetMDUSBService extends NetMDService {
         const esm = await ExploitStateManager.create(this.netmdInterface!, factoryInstance, ConsoleLogger);
         return new NetMDFactoryUSBService(factoryInstance, this, this.mutex, esm);
     }
+
+    isDeviceConnected(device: USBDevice){
+        return this.netmdInterface!.netMd.isDeviceConnected(device);
+    }
 }
 
 class NetMDFactoryUSBService implements NetMDFactoryService {
@@ -798,7 +800,7 @@ class NetMDFactoryUSBService implements NetMDFactoryService {
         public exploitStateManager: ExploitStateManager
     ) {}
     async getExploitCapabilities() {
-        let capabilities: ExploitCapability[] = [];
+        const capabilities: ExploitCapability[] = [];
         const bind = (a: any, b: ExploitCapability) => isCompatible(a, this.exploitStateManager.device) && capabilities.push(b);
 
         bind(FirmwareDumper, ExploitCapability.readFirmware);
@@ -851,7 +853,7 @@ class NetMDFactoryUSBService implements NetMDFactoryService {
     async readRAM(callback: (progress?: { readBytes: number; totalBytes: number }) => void): Promise<Uint8Array> {
         const firmwareVersion = await getDescriptiveDeviceCode(this.factoryInterface);
         const ramSize = firmwareVersion.startsWith('R') ? 0x4800 : 0x9000;
-        let readSlices: Uint8Array[] = [];
+        const readSlices: Uint8Array[] = [];
         for (let i = 0; i < ramSize; i += 0x10) {
             readSlices.push(await cleanRead(this.factoryInterface, i + 0x02000000, 0x10, MemoryType.MAPPED));
             if (callback !== undefined) callback({ readBytes: i, totalBytes: ramSize });
@@ -935,14 +937,14 @@ class NetMDFactoryUSBService implements NetMDFactoryService {
             progressCallback({ written, encrypted, total });
         }
 
-        let [w, creator] = this.parent.getWorkerForUpload();
+        const [w, creator] = this.parent.getWorkerForUpload();
 
-        let webWorkerAsyncPacketIterator = creator(w, ({ encryptedBytes }: { encryptedBytes: number }) => {
+        const webWorkerAsyncPacketIterator = creator(w, ({ encryptedBytes }: { encryptedBytes: number }) => {
             encrypted = encryptedBytes;
             updateProgress();
         });
 
-        let halfWidthTitle = sanitizeHalfWidthTitle(title);
+        const halfWidthTitle = sanitizeHalfWidthTitle(title);
         fullWidthTitle = sanitizeFullWidthTitle(fullWidthTitle);
         let mdTrack = new MDTrack(halfWidthTitle, Wireformat.l105kbps, data, 0x400, fullWidthTitle, webWorkerAsyncPacketIterator);
 

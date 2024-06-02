@@ -20,13 +20,14 @@ import {
     HiMDFile,
     HiMDWriteStream,
     uploadMacDependent,
-    UMSCHiMDSession,
+    HiMDSecureSession,
     generateCodecInfo,
     HiMDKBPSToFrameSize,
     HiMDError,
     getCodecName,
     HiMDFilesystem,
     DevicesIds,
+    deleteTracks,
 } from 'himd-js';
 import {
     Capability,
@@ -44,7 +45,7 @@ import { concatUint8Arrays } from 'netmd-js/dist/utils';
 import { recomputeGroupsAfterTrackMove } from '../../utils';
 import { CryptoProvider } from 'himd-js/dist/workers';
 
-const Worker = null as any; // eslint-disable-line import/no-webpack-loader-syntax
+const WorkerURL = null as any;
 
 export class HiMDSpec implements MinidiscSpec {
     constructor(private unrestricted: boolean = false) {
@@ -112,6 +113,7 @@ export class HiMDRestrictedService extends NetMDService {
     protected atdata: HiMDFile | null = null;
     protected fsDriver?: HiMDFilesystem;
     protected spec: MinidiscSpec;
+    protected bypassFSCoherencyChecks = false;
 
     constructor({ debug = false }: { debug: boolean }) {
         super();
@@ -142,7 +144,7 @@ export class HiMDRestrictedService extends NetMDService {
         };
     }
     getWorker(): any[]{
-        return [new Worker(), makeAsyncWorker];
+        return [new Worker(new URL(WorkerURL, ""), { type: 'classic' }), makeAsyncWorker];
     }
 
     async getDeviceStatus(): Promise<DeviceStatus> {
@@ -278,8 +280,10 @@ export class HiMDRestrictedService extends NetMDService {
     }
 
     async wipeDisc(): Promise<void> {
+        const space = await this.fsDriver!.getTotalSpace();
+        // Recreate FS only on the 1GB discs
         try{
-            await this.himd!.wipe(false);
+            await this.himd!.wipe(space > 500000000);
             this.dropCachedContentList();
         }catch(ex){
             console.log(ex);
@@ -343,11 +347,11 @@ export class HiMDRestrictedService extends NetMDService {
         progressCallback: (progress: { read: number; total: number }) => void
     ): Promise<{ format: DiscFormat; data: Uint8Array } | null> {
         const trackNumber = this.himd!.trackIndexToTrackSlot(index);
-        let [w, creator] = this.getWorker();
+        const [w, creator] = this.getWorker();
         const webWorker = await creator(w);
         const info = dumpTrack(this.himd!, trackNumber, webWorker);
         const blocks: Uint8Array[] = [];
-        for await (let { data, total } of info.data) {
+        for await (const { data, total } of info.data) {
             blocks.push(data);
             progressCallback({ read: blocks.length, total });
         }
@@ -396,6 +400,10 @@ export class HiMDRestrictedService extends NetMDService {
 
     async wipeDiscTitleInfo(): Promise<void> {}
 
+    isDeviceConnected(device: USBDevice){
+        return false;
+    }
+
     ///////////////////////UNRESTRICTED ONLY/////////////////////////
 
     play(): Promise<void> {
@@ -426,7 +434,7 @@ export class HiMDRestrictedService extends NetMDService {
 
 export class HiMDFullService extends HiMDRestrictedService {
     protected worker: CryptoProvider | null = null;
-    protected session: UMSCHiMDSession | null = null;
+    protected session: HiMDSecureSession | null = null;
     protected fsDriver?: UMSCHiMDFilesystem;
     constructor(p: { debug: boolean }) {
         super(p);
@@ -461,9 +469,9 @@ export class HiMDFullService extends HiMDRestrictedService {
     }
 
     async initHiMD(): Promise<void> {
-        await this.fsDriver!.init();
+        await this.fsDriver!.init(this.bypassFSCoherencyChecks);
         this.himd = await HiMD.init(this.fsDriver!);
-        Object.defineProperty(window, 'signHiMDDisc', {
+        Object.defineProperty(globalThis, 'signHiMDDisc', {
             configurable: true,
             writable: true,
             value: async () => {
@@ -471,7 +479,7 @@ export class HiMDFullService extends HiMDRestrictedService {
                 console.log(
                     "NOTICE: It's impossible to re-sign MP3 audio.\nMP3s need to instead be re-encrypted.\nPlease download the MP3 files from the working disc, and reupload them here"
                 );
-                const session = new UMSCHiMDSession(this.fsDriver!.driver, this.himd!);
+                const session = new HiMDSecureSession(this.himd!, this.fsDriver!.driver);
                 await session.performAuthentication();
                 console.log('Authenticated');
                 for (let i = 0; i < this.himd!.getTrackCount(); i++) {
@@ -496,6 +504,13 @@ export class HiMDFullService extends HiMDRestrictedService {
         });
     }
 
+    async listContent(dropCache?: boolean): Promise<Disc> {
+        if(dropCache){
+            await this.fsDriver!.init();
+        }
+        return super.listContent(dropCache);
+    }
+
     async finalizeUpload(): Promise<void> {
         await super.finalizeUpload();
         if (this.session) {
@@ -512,8 +527,21 @@ export class HiMDFullService extends HiMDRestrictedService {
 
     async prepareUpload(): Promise<void> {
         await super.prepareUpload();
-        let [w, creator] = this.getWorker();
+        const [w, creator] = this.getWorker();
         this.worker = await creator(w);
+    }
+
+    async deleteTracks(indexes: number[]): Promise<void> {
+        const allTrackSlots = indexes.map(e => this.himd!.trackIndexToTrackSlot(e));
+        await deleteTracks(this.himd!, indexes);
+        // Re-sign the disc
+        const session = new HiMDSecureSession(this.himd!, this.fsDriver!.driver);
+        await session.performAuthentication();
+        for(let trackSlot of allTrackSlots) {
+            session.allMacs!.set(new Uint8Array(8).fill(0), (trackSlot - 1) * 8);
+        }
+        await session.finalizeSession();
+        this.dropCachedContentList();
     }
 
     async upload(
@@ -527,11 +555,11 @@ export class HiMDFullService extends HiMDRestrictedService {
             await super.upload(title, fullWidthTitle, data, format, progressCallback);
         } else {
             if (!this.session) {
-                this.session = new UMSCHiMDSession(this.fsDriver!.driver, this.himd!);
+                this.session = new HiMDSecureSession(this.himd!, this.fsDriver!.driver);
                 await this.session.performAuthentication();
             }
             const stream = new HiMDWriteStream(this.himd!, this.atdata!, true);
-            const titleObject = title as { title?: string | undefined; album?: string | undefined; artist?: string | undefined };
+            const titleObject = title as { title?: string; album?: string; artist?: string };
             let frameSize;
             if (format.codec === 'LP2') {
                 format = { codec: 'AT3', bitrate: 66 };
@@ -569,5 +597,9 @@ export class HiMDFullService extends HiMDRestrictedService {
                 this.worker!
             );
         }
+    }
+
+    isDeviceConnected(device: USBDevice){
+        return this.fsDriver!.driver.isDeviceConnected(device);
     }
 }

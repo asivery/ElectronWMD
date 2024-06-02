@@ -1,6 +1,6 @@
 {
   "name": "electronwmd",
-  "version": "0.3.2-1.4.2",
+  "version": "0.4.0-1.4.2",
   "description": "Electron version of WebMinidisc Pro",
   "main": "dist/main.js",
   "scripts": {
@@ -36,14 +36,15 @@
   "dependencies": {
     "async-mutex": "^0.3.2",
     "electron-store": "^8.1.0",
-    "himd-js": "^0.1.11",
+    "himd-js": "^0.2.0-alpha.4",
     "jconv": "^0.1.5",
     "jsbi": "^3.2.5",
     "msgpackr": "^1.9.5",
     "netmd-exploits": "^0.5.4",
-    "netmd-js": "^4.1.4",
+    "netmd-js": "^4.1.10",
     "netmd-tocmanip": "^0.1.5",
     "node-fetch": "^2.6.7",
+    "nufatfs": "^0.1.2",
     "sudo-prompt": "^9.2.1",
     "typescript": "^4.3.5",
     "usb": "^2.4.1"
@@ -51,8 +52,8 @@
   "devDependencies": {
     "@types/electron": "^1.6.10",
     "@types/node-fetch": "^2.6.2",
-    "electron": "^13.6.9",
-    "electron-builder": "^23.0.3",
+    "electron": "^29.1.6",
+    "electron-builder": "^24.13.3",
     "prettier": "^2.7.1"
   }
 }

@@ -11,8 +11,12 @@ export function getSocketName(){
 export function startServer(){
     const executablePath = app.getPath('exe');
     const serverPath = pathJoin(app.getAppPath(), "dist", "macos", "server.js");
+    let envs = "ELECTRON_RUN_AS_NODE=1";
+    if(process.env.EWMD_HIMD_BYPASS_COHERENCY_CHECK) {
+        envs += ` EWMD_HIMD_BYPASS_COHERENCY_CHECK=${process.env.EWMD_HIMD_BYPASS_COHERENCY_CHECK}`;
+    }
     return new Promise<void>((res) => 
-        sudoExec(`ELECTRON_RUN_AS_NODE=1 "${executablePath}" "${serverPath}"`, {
+        sudoExec(`${envs} "${executablePath}" "${serverPath}"`, {
             name: "ElectronWMD",
         }, (err, stdout, stderr) => {
             if(err){

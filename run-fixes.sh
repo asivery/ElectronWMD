@@ -5,7 +5,8 @@ cp webminidisc/src/services/interfaces/himd.ts webminidisc/src/services/interfac
 for x in src/wmd/original/services/interfaces/*
 do
     sed -i -e '1i // This file has been auto-generated! DO NOT EDIT!' "$x"
-    sed -i -e "s/require('worker-loader\![^\\)]*)/null as any/g" "$x"
+    sed -i -E "s|^import Worker(.*)? from '[^']+';|const Worker\1 = null as any;|g" "$x"
+    sed -i -e 's/import.meta.url/""/g' "$x"
 done
 
 PWD=$(pwd)
