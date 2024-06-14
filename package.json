@@ -35,6 +35,7 @@
   "private": true,
   "dependencies": {
     "async-mutex": "^0.3.2",
+    "electron-context-menu": "^3.6.1",
     "electron-store": "^8.1.0",
     "himd-js": "^0.2.0-alpha.4",
     "jconv": "^0.1.5",

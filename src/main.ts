@@ -10,6 +10,7 @@ import fetch from 'node-fetch';
 import Store from 'electron-store';
 import { Connection, getSocketName, startServer } from './macos/server-bootstrap';
 import { spawn } from 'child_process';
+import contextMenu from 'electron-context-menu';
 
 const getOfRenderer = (...p: string[]) => path.join(__dirname, '..', 'renderer', ...p);
 
@@ -382,6 +383,10 @@ async function integrate(window: BrowserWindow) {
     setupSettings(window);
     setupEncoder();
 }
+
+contextMenu({
+    showInspectElement: false,
+});
 
 app.whenReady().then(() => {
     protocol.registerFileProtocol('sandbox', (rq, callback) => {
