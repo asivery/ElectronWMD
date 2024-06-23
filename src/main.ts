@@ -240,7 +240,6 @@ async function integrate(window: BrowserWindow) {
         value: (text: string) => dialog.showMessageBoxSync(window, { message: text }),
     });
 
-    webusb.addEventListener('disconnect', () => window.reload());
     const service = new EWMDNetMD({ debug: true });
 
     let currentObj = service as any;
@@ -252,6 +251,17 @@ async function integrate(window: BrowserWindow) {
     let alreadySwitched = false;
     let factoryIface: any = null;
     let factoryDefList: string[] = [];
+
+    function reload(){
+        // AppImages do not restart correctly
+        if (app.isPackaged && process.env.APPIMAGE) {
+            alert("This is an AppImage. Electron has a bug where AppImages cannot restart. Please restart the app manually");
+        }
+        app.relaunch();
+        app.exit();
+    }
+
+    ipcMain.handle('reload', reload);
 
     ipcMain.handle('_switchToFactory', async () => {
         factoryIface = await service.factory();
@@ -382,6 +392,13 @@ async function integrate(window: BrowserWindow) {
 
     setupSettings(window);
     setupEncoder();
+
+    // On a USB disconnect event, enumerate services, check if any was connected
+    webusb.ondisconnect = event => {
+        if([service, himdService, nwService].some(e => e.isDeviceConnected(event.device))) {
+            reload();
+        }
+    }
 }
 
 contextMenu({
