@@ -116,7 +116,7 @@ function setupEncoder() {
         });
     }
 
-    ipcMain.handle("invokeLocalEncoder", async (_, encoderPath: string, data: ArrayBuffer, sourceFilename: string, parameters: { format: Codec, enableReplayGain?: boolean }) => {
+    ipcMain.handle("invokeLocalEncoder", async (_, ffmpegPath: string, encoderPath: string, data: ArrayBuffer, sourceFilename: string, parameters: { format: Codec, enableReplayGain?: boolean }) => {
         // Pipeline:
         // inFile.ANY ==(ffmpeg)==> inFile.wav ==(encoder)==> outFile.wav
         const tempDir = fs.mkdtempSync('atracenc');
@@ -129,7 +129,7 @@ function setupEncoder() {
         }
         ffmpegArgs.push('-ac', '2', '-ar', '44100', '-f', 'wav', intermediateFilePath);
         console.log(`Executing ffmpeg. ARGS: ${ffmpegArgs}`);
-        await invoke('ffmpeg', ffmpegArgs);
+        await invoke(ffmpegPath, ffmpegArgs);
 
         const outFilePath = path.join(tempDir, "output.wav");
         const bitrateString = (parameters.format.bitrate! + '');
@@ -269,7 +269,7 @@ async function integrate(window: BrowserWindow) {
         // The nomral ipc-copying code can't be used for that.
         let shouldAbortAtracDownload = false;
         let handleBadSectorResolve: ((arg: "reload" | "abort" | "skip" | "yieldanyway") => void) | null = null
-        
+
         ipcMain.removeHandler('_factory__exploitDownloadTrack');
         ipcMain.handle('_factory__exploitDownloadTrack', async (_, ...allArgs: Parameters<NetMDFactoryService['exploitDownloadTrack']>) => {
             handleBadSectorResolve = null;
@@ -306,9 +306,9 @@ async function integrate(window: BrowserWindow) {
     });
 
     const himdService = new EWMDHiMD({ debug: true });
-    if(process.platform !== 'darwin'){
+    if(process.platform !== 'darwin') {
         const himdDeflist = traverseObject(window, () => himdService, "_himd_");
-        ipcMain.handle('_himd__definedParameters', () => himdDeflist);    
+        ipcMain.handle('_himd__definedParameters', () => himdDeflist);
     } else {
         const connection = new Connection();
 
