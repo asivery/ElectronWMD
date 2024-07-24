@@ -29,7 +29,10 @@
       "dist",
       "renderer",
       "res"
-    ]
+    ],
+    "buildDependenciesFromSource": false,
+    "nodeGypRebuild": false,
+    "npmRebuild": false
   },
   "author": "asivery",
   "private": true,
@@ -37,7 +40,7 @@
     "async-mutex": "^0.3.2",
     "electron-context-menu": "^3.6.1",
     "electron-store": "^8.1.0",
-    "himd-js": "^0.2.0-alpha.4",
+    "himd-js": "^0.2.0-alpha.5",
     "jconv": "^0.1.5",
     "jsbi": "^3.2.5",
     "msgpackr": "^1.9.5",
@@ -45,15 +48,14 @@
     "netmd-js": "^4.1.10",
     "netmd-tocmanip": "^0.1.5",
     "node-fetch": "^2.6.7",
-    "nufatfs": "^0.1.2",
+    "nufatfs": "^0.1.3",
     "sudo-prompt": "^9.2.1",
     "typescript": "^4.3.5",
-    "usb": "^2.4.1"
+    "usb": "^2.13.0"
   },
   "devDependencies": {
-    "@types/electron": "^1.6.10",
     "@types/node-fetch": "^2.6.2",
-    "electron": "^29.1.6",
+    "electron": "^31.2.1",
     "electron-builder": "^24.13.3",
     "prettier": "^2.7.1"
   }
