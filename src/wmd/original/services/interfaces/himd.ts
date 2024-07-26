@@ -63,13 +63,31 @@ export class HiMDSpec implements MinidiscSpec {
     public readonly specName: string;
 
     getRemainingCharactersForTitles(disc: Disc): { halfWidth: number; fullWidth: number } {
-        // FIXME
-        return { halfWidth: 99999, fullWidth: 99999 };
+        const ALL_CHARACTERS = 0x1000 * 14;
+        const t = (x: string) => Math.floor((x.length + 13) / 14) * 14;
+        let amt = 0;
+        // TODO: this can be integrated into himd-js at some point...
+        for(let group of disc.groups){
+            if(group.title){
+                amt += t(group.title);
+            }
+            for(let track of group.tracks){
+                if(track.title) amt += t(track.title);
+                if(track.album) amt += t(track.album);
+                if(track.artist) amt += t(track.artist);
+            }
+        }
+        if(disc.title) amt += t(disc.title);
+        return { halfWidth: ALL_CHARACTERS - amt, fullWidth: 1 };
     }
 
     getCharactersForTitle(track: Track): { halfWidth: number; fullWidth: number } {
-        // FIXME
-        return { halfWidth: 0, fullWidth: 0 };
+        const t = (x: string) => Math.floor((x.length + 13) / 14) * 14;
+        let amt = 0;
+        if(track.title) amt += t(track.title);
+        if(track.album) amt += t(track.album);
+        if(track.artist) amt += t(track.artist);
+        return { halfWidth: amt, fullWidth: 0 };
     }
 
     translateDefaultMeasuringModeTo(codec: Codec, defaultMeasuringModeDuration: number): number {
@@ -108,7 +126,7 @@ export class HiMDSpec implements MinidiscSpec {
 export class HiMDRestrictedService extends NetMDService {
     private logger?: Logger;
     public mutex = new Mutex();
-    protected himd?: HiMD;
+    public himd?: HiMD;
     protected cachedDisc?: Disc;
     protected atdata: HiMDFile | null = null;
     protected fsDriver?: HiMDFilesystem;
@@ -215,7 +233,12 @@ export class HiMDRestrictedService extends NetMDService {
     }
 
     async listContent(dropCache?: boolean | undefined): Promise<Disc> {
-        if (!this.himd) {
+        if(dropCache && this.himd?.isDirty()) {
+            window.alert("You have changes not yet written to disc. Please apply changes first.");
+            await this.reloadCache();
+            return JSON.parse(JSON.stringify(this.cachedDisc!));
+        }
+        if (!this.himd || dropCache) {
             await this.initHiMD();
         }
         (window as any).himd = this.himd;
