@@ -102,8 +102,8 @@ import type { Setting } from './main';
         await ipcRenderer.invoke("_signHiMDDisc");
     }
 
-    async function invokeLocalEncoder(encoderPath: string, data: ArrayBuffer, sourceFilename: string, parameters: { format: Codec, enableReplayGain?: boolean }) {
-        return await ipcRenderer.invoke("invokeLocalEncoder", encoderPath, data, sourceFilename, parameters);
+    async function invokeLocalEncoder(ffmpegPath: string, encoderPath: string, data: ArrayBuffer, sourceFilename: string, parameters: { format: Codec, enableReplayGain?: boolean }) {
+        return await ipcRenderer.invoke("invokeLocalEncoder", ffmpegPath, encoderPath, data, sourceFilename, parameters);
     }
 
     function openFileHostDialog(filters: string[], directory?: boolean): Promise<string | null> {

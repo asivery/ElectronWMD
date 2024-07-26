@@ -395,7 +395,7 @@ async function integrate(window: BrowserWindow) {
 
     // On a USB disconnect event, enumerate services, check if any was connected
     webusb.ondisconnect = event => {
-        if([service, himdService, nwService].some(e => e.isDeviceConnected(event.device))) {
+        if([service, himdService].some(e => e.isDeviceConnected(event.device))) {
             reload();
         }
     }
