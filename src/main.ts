@@ -1,7 +1,8 @@
-import { app, BrowserWindow, ipcMain, Menu, protocol, dialog, FileFilter } from 'electron';
-import { WebUSB } from 'usb';
+import { app, BrowserWindow, ipcMain, protocol, dialog, FileFilter } from 'electron';
+import { WebUSB, WebUSBDevice, usb } from 'usb';
 import { DevicesIds as  NetMDDevicesIds } from 'netmd-js';
 import { DevicesIds as  HiMDDevicesIds } from 'himd-js';
+import { DeviceIds as NWDevicesIds, importKeys } from 'networkwm-js';
 import path from 'path';
 import fs from 'fs';
 import { EWMDHiMD, EWMDNetMD } from './wmd/translations';
@@ -10,7 +11,10 @@ import fetch from 'node-fetch';
 import Store from 'electron-store';
 import { Connection, getSocketName, startServer } from './macos/server-bootstrap';
 import { spawn } from 'child_process';
+import { NetworkWMService } from './wmd/networkwm-service';
 import contextMenu from 'electron-context-menu';
+import prompt from 'electron-prompt';
+import { EKBROOTS } from 'networkwm-js/dist/encryption';
 
 const getOfRenderer = (...p: string[]) => path.join(__dirname, '..', 'renderer', ...p);
 
@@ -18,6 +22,15 @@ async function ewmdOpenDialog(window: BrowserWindow, filters: FileFilter[], dire
     const res = await dialog.showOpenDialog(window, { filters, properties: [directory ? 'openDirectory' : 'openFile'] });
     if(res.canceled) return null;
     else return res.filePaths[0];
+}
+
+function reload(window: BrowserWindow){
+    // AppImages do not restart correctly
+    if (app.isPackaged && process.env.APPIMAGE) {
+        dialog.showMessageBoxSync(window, { message: "This is an AppImage. Electron has a bug where AppImages cannot restart. Please restart the app manually" });
+    }
+    app.relaunch();
+    app.exit();
 }
 
 app.commandLine.appendSwitch('ignore-certificate-errors');
@@ -82,6 +95,36 @@ function setupSettings(window: BrowserWindow) {
             type: 'hostDirPath',
             state: store.get('downloadPath', '') as string,
         }: null,
+        {
+            family: 'Functionality',
+            name: 'Import NetworkWM Keyring Data',
+            type: 'action',
+            state: 0,
+            async handleChange() {
+                const resp = await prompt({
+                    title: 'Keyring Import',
+                    label: 'Please enter the keyring string below',
+                    inputAttrs: {
+                        type: 'text',
+                    }
+                }, window);
+                if(resp === null) return;
+                let rawData;
+                let backup = { ...EKBROOTS };
+                Object.keys(EKBROOTS).forEach((e: any) => delete EKBROOTS[e]);
+                try{
+                    rawData = Uint8Array.from(atob(resp), e => e.charCodeAt(0));
+                    importKeys(rawData);
+                }catch(ex){
+                    dialog.showMessageBoxSync(window, { message: 'Keyring import failed.' });
+                    Object.keys(EKBROOTS).forEach((e: any) => EKBROOTS[e] = backup[e]); 
+                    return;
+                }
+                fs.writeFileSync(path.join(app.getPath('userData'), 'EKBROOTS.DES'), rawData);
+                dialog.showMessageBoxSync(window, { message: `Keyring import successful! Keys imported:\n${Object.keys(EKBROOTS).map(e => parseInt(e).toString(16).padStart(8, '0')).join('\n')}\nClick OK to restart the app.` });
+                reload(window);
+            }
+        }
     ];
     const settings = _settings.filter(e => e);
 
@@ -103,6 +146,20 @@ function setupSettings(window: BrowserWindow) {
             return q;
         });
     });
+}
+
+class WebUSBInterop extends WebUSB {
+    addKnownDevice(legacy: usb.Device, webusbInstance: WebUSBDevice){
+        this.knownDevices.set(legacy, webusbInstance);
+    }
+
+    static create(){
+        const webusb = new WebUSBInterop({
+            allowedDevices: NetMDDevicesIds.concat(HiMDDevicesIds).concat(NWDevicesIds.map(e => ({ deviceId: e.productId, ...e}))).map((n) => ({ vendorId: n.vendorId, productId: n.deviceId })),
+            deviceTimeout: 10000000,
+        });
+        return webusb;
+    }
 }
 
 function setupEncoder() {
@@ -222,10 +279,7 @@ function traverseObject(window: BrowserWindow, objectFactory: () => any, namespa
 }
 
 async function integrate(window: BrowserWindow) {
-    const webusb = new WebUSB({
-        allowedDevices: NetMDDevicesIds.concat(HiMDDevicesIds).map((n) => ({ vendorId: n.vendorId, productId: n.deviceId })),
-        deviceTimeout: 10000000,
-    });
+    const webusb = WebUSBInterop.create();
 
     Object.defineProperty(global, 'navigator', {
         writable: false,
@@ -252,16 +306,7 @@ async function integrate(window: BrowserWindow) {
     let factoryIface: any = null;
     let factoryDefList: string[] = [];
 
-    function reload(){
-        // AppImages do not restart correctly
-        if (app.isPackaged && process.env.APPIMAGE) {
-            alert("This is an AppImage. Electron has a bug where AppImages cannot restart. Please restart the app manually");
-        }
-        app.relaunch();
-        app.exit();
-    }
-
-    ipcMain.handle('reload', reload);
+    ipcMain.handle('reload', reload.bind(null, window));
 
     ipcMain.handle('_switchToFactory', async () => {
         factoryIface = await service.factory();
@@ -386,6 +431,16 @@ async function integrate(window: BrowserWindow) {
         console.log(list.join(', '));
     });
 
+    let keyData: Uint8Array | undefined = undefined;
+    try{
+        keyData = new Uint8Array(fs.readFileSync(path.join(app.getPath('userData'), 'EKBROOTS.DES')));
+    }catch(_){ console.log("Can't read roots") }
+
+    const nwService = new NetworkWMService(keyData);
+    // TODO: macOS
+    const himdDeflist = traverseObject(window, () => nwService, "_nwjs_");
+    ipcMain.handle('_nwjs__definedParameters', () => himdDeflist);
+
     ipcMain.handle("openFileHostDialog", async (_, filters: { name: string, extensions: string[] }[], directory?: boolean): Promise<string | null> => {
         return ewmdOpenDialog(window, filters, directory);     
     });
@@ -394,9 +449,12 @@ async function integrate(window: BrowserWindow) {
     setupEncoder();
 
     // On a USB disconnect event, enumerate services, check if any was connected
+    const addKnownDeviceCB = webusb.addKnownDevice.bind(webusb);
+    nwService.deviceConnectedCallback = addKnownDeviceCB;
+    himdService.deviceConnectedCallback = addKnownDeviceCB;
     webusb.ondisconnect = event => {
-        if([service, himdService].some(e => e.isDeviceConnected(event.device))) {
-            reload();
+        if([service, himdService, nwService].some(e => e.isDeviceConnected(event.device))) {
+            reload(window);
         }
     }
 }

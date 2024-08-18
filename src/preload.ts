@@ -2,6 +2,40 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { Codec, NetMDFactoryService } from './wmd/original/services/interfaces/netmd';
 import type { Setting } from './main';
 
+export type InlineChangelogEntry = 
+    | string
+    | { type: 'code', content: string }
+    | { type: 'link', url?: string, clickHandler?: 'openSettings', content: string }
+
+export type ChangelogEntry = 
+    | InlineChangelogEntry
+    | InlineChangelogEntry[]
+    | { type: 'sublist', name: string, content: ChangelogEntry[] }
+
+export interface ChangelogVersion {
+    name: string;
+    contents: ChangelogEntry[]
+}
+
+export interface ChangelogVersionInjection {
+    entry: ChangelogVersion;
+    before: string | null;
+}
+
+export const CHANGELOG: ChangelogVersionInjection[] = [
+    {
+        before: 'Version 1.5.0',
+        entry: {
+            name: 'ElectronWMD 0.5.0-1.5.0',
+            contents: [
+                "Add support for Sony Network Walkman devices",
+                "Fix stability issues on HiMD device",
+                "Overhauled settings - moved ElectronWMD settings to main settings dialog",
+            ],
+        }
+    }
+];
+
 (async () => {
     console.group('PRELOAD');
     console.log('====PRELOAD START====');
@@ -24,7 +58,9 @@ import type { Setting } from './main';
                         args[i] = { interprocessType: 'function' };
                     }
                 }
+                console.log(`Invoke ${name}`);
                 const [response, error] = await ipcRenderer.invoke(name, ...args);
+                console.log(`Invoke ${name} done`);
                 if (error) throw error;
                 return await response;
             };
@@ -93,6 +129,8 @@ import type { Setting } from './main';
 
     const himdIface: any = {};
     await loadNamespaced(himdIface, "_himd_");
+    const nwjsIface: any = {};
+    await loadNamespaced(nwjsIface, "_nwjs_");
 
     async function unrestrictedFetchJSON(url: string, parameters: any) {
         return JSON.parse(await ipcRenderer.invoke('_unrestrictedFetch', url, parameters));
@@ -110,6 +148,10 @@ import type { Setting } from './main';
         return ipcRenderer.invoke('openFileHostDialog', filters, directory);
     }
 
+    function reload(){
+        return ipcRenderer.invoke('reload');
+    }
+
     contextBridge.exposeInMainWorld('native', {
         unrestrictedFetchJSON,
 
@@ -117,10 +159,14 @@ import type { Setting } from './main';
 
         interface: iface,
         himdFullInterface: himdIface,
+        nwInterface: nwjsIface,
         signHiMDDisc,
         openFileHostDialog,
+        reload,
 
         invokeLocalEncoder,
+
+        wrapperChangelog: CHANGELOG,
 
         _debug_himdPullFile: (a: string, b: string) => ipcRenderer.invoke('_debug_himdPullFile', a, b),
         _debug_himdList: (a: string) => ipcRenderer.invoke('_debug_himdList', a),
