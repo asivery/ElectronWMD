@@ -56,6 +56,7 @@ import {
     MonoSPUpload,
 } from 'netmd-exploits';
 import netmdExploits from 'netmd-exploits';
+import netmdTocmanip from 'netmd-tocmanip';
 import { HiMDCodecName } from 'himd-js';
 const Worker = null as any;
 
@@ -69,6 +70,7 @@ export enum Capability {
     factoryMode,
     himdTitles,
     fullWidthSupport,
+    nativeMonoUpload,
 
     requiresManualFlush,
 }
@@ -425,6 +427,13 @@ export class NetMDUSBService extends NetMDService {
         ) {
             // Only Sony (and Aiwa since it's the same thing) portables have the factory mode.
             basic.push(Capability.factoryMode);
+        }
+
+        const deviceFlags = this.netmdInterface?.netMd.getDeviceFlags();
+        if(deviceFlags) {
+            if(deviceFlags.nativeMonoUpload) {
+                basic.push(Capability.nativeMonoUpload);
+            }
         }
 
         try {
@@ -786,7 +795,7 @@ export class NetMDUSBService extends NetMDService {
     }
 
     isDeviceConnected(device: USBDevice){
-        return this.netmdInterface!.netMd.isDeviceConnected(device);
+        return this.netmdInterface?.netMd.isDeviceConnected(device) ?? false;
     }
 }
 
@@ -819,6 +828,13 @@ class NetMDFactoryUSBService implements NetMDFactoryService {
         if ((window as any).interface) {
             Object.defineProperty(window, 'exploitStateManager', { value: this.exploitStateManager, configurable: true });
             Object.defineProperty(window, 'exploits', { value: netmdExploits, configurable: true });
+            Object.defineProperty(window, 'tocmanip', { value: netmdTocmanip, configurable: true });
+            Object.defineProperty(window, 'getToC', { value: async () => {
+                let sector0 = await this.readUTOCSector(0);
+                let sector1 = await this.readUTOCSector(1);
+                let sector2 = await this.readUTOCSector(2);
+                return netmdTocmanip.parseTOC(sector0, sector1, sector2);
+            } , configurable: true });
         }
 
         return capabilities;

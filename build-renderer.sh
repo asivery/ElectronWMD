@@ -8,7 +8,7 @@ rm -rf webminidisc
 
 git clone https://github.com/asivery/webminidisc
 cd webminidisc
-npm i --legacy-peer-deps
+npm i
 PUBLIC_URL="sandbox://" npm run build; rm -rf ../renderer; cp -rv dist ../renderer
 cd ..
 

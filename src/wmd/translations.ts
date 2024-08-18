@@ -6,7 +6,7 @@ import path from 'path';
 import { Worker } from 'worker_threads';
 import { makeAsyncWorker } from "himd-js/dist/node-crypto-worker";
 import { DevicesIds, UMSCHiMDFilesystem } from "himd-js";
-import { WebUSBDevice, findByIds } from 'usb';
+import { WebUSBDevice, findByIds, usb } from 'usb';
 import { unmountAll } from "../unmount-drives";
 
 export class EWMDNetMD extends NetMDUSBService {
@@ -19,14 +19,19 @@ export class EWMDNetMD extends NetMDUSBService {
 
 export class EWMDHiMD extends HiMDFullService {
     public fsDriver?: UMSCHiMDFilesystem;
+    public deviceConnectedCallback?: (legacy: usb.Device, webusb: WebUSBDevice) => {}
+
     override getWorker(): any[] {
         return [new Worker(
             path.join(__dirname, '..', '..', 'node_modules', 'himd-js', 'dist', 'node-crypto-worker.js')
         ), makeAsyncWorker];
     }
-    
+
     async pair() {
-        this.bypassFSCoherencyChecks = process.env.EWMD_HIMD_BYPASS_COHERENCY_CHECK === 'true';
+        this.bypassFSCoherencyChecks = true; // process.env.EWMD_HIMD_BYPASS_COHERENCY_CHECK === 'true';
+        if(this.bypassFSCoherencyChecks) {
+            console.log("Warning: All FAT filesystem coherency checks are bypassed!\nThis might cause data corruption!")
+        }
         let legacyDevice, vendorId, deviceId;
         for({ vendorId, deviceId } of DevicesIds){
             legacyDevice = findByIds(vendorId, deviceId);
@@ -48,6 +53,7 @@ export class EWMDHiMD extends HiMDFullService {
         }
         const webUsbDevice = await WebUSBDevice.createInstance(legacyDevice);
         await webUsbDevice.open();
+        this.deviceConnectedCallback?.(legacyDevice, webUsbDevice);
         this.fsDriver = new UMSCHiMDFilesystem(webUsbDevice);
         return true;
     }
