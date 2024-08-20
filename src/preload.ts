@@ -29,6 +29,7 @@ export const CHANGELOG: ChangelogVersionInjection[] = [
             name: 'ElectronWMD 0.5.0-1.5.0',
             contents: [
                 "Add support for Sony Network Walkman devices",
+                "Add support for running a local instance of the Sony ATRAC encoder",
                 "Fix stability issues on HiMD device",
                 "Overhauled settings - moved ElectronWMD settings to main settings dialog",
             ],
