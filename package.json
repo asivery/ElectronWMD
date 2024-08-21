@@ -8,7 +8,7 @@
     "start": "npm run build && NODE_ENV=development electron ./dist/main.js",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder -wl --x64 && electron-builder -w --ia32",
-    "dist-mac": "npm run build && electron-builder -m --x64 && electron-builder -m --arm64"
+    "dist-mac": "./build-renderer.sh && ./run-fixes-macdist.sh && tsc && electron-builder -m --x64 && electron-builder -m --arm64"
   },
   "build": {
     "directories": {
