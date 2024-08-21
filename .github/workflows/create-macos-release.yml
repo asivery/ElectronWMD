@@ -1,0 +1,33 @@
+name: Build and Release macOS App
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build macOS app
+        run: npm run dist-mac
+
+      - name: Find and upload dmg files
+        run: |
+          DMG_FILES=$(find build/ -name "*.dmg")
+          for file in $DMG_FILES; do
+            echo "Uploading $file"
+            gh release upload "$GITHUB_REF" "$file"
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
