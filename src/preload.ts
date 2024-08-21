@@ -30,8 +30,8 @@ export const CHANGELOG: ChangelogVersionInjection[] = [
             contents: [
                 "Add support for Sony Network Walkman devices",
                 "Add support for running a local instance of the Sony ATRAC encoder",
-                "Fix stability issues on HiMD device",
-                "Overhauled settings - moved ElectronWMD settings to main settings dialog",
+                "Fix stability issues on HiMD devices",
+                "Overhauled settings - moved ElectronWMD settings to the main settings dialog",
             ],
         }
     }
