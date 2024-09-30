@@ -1,6 +1,6 @@
 import { DeviceStatus, DiscFormat, TrackFlag } from "netmd-js";
 import { Capability, Codec, Disc, Group, MinidiscSpec, NetMDService, RecordingCodec, TitleParameter, Track } from "./original/services/interfaces/netmd";
-import { DatabaseManager, SonyVendorNWJSUSMCDriver, UMSCNWJSSession, createNWJSFS, openNewDeviceNode, importKeys, initCrypto, resolvePathFromGlobalIndex, TrackMetadata, flatten, DeviceIds } from 'networkwm-js';
+import { DatabaseManager, SonyVendorNWJSUSMCDriver, UMSCNWJSSession, createNWJSFS, importKeys, initCrypto, resolvePathFromGlobalIndex, TrackMetadata, flatten, DeviceIds, DeviceDefinition, findDevice } from 'networkwm-js';
 import { HiMDKBPSToFrameSize, UMSCHiMDFilesystem, generateCodecInfo } from "himd-js";
 import nodeFs from 'fs';
 import { AbstractedTrack, DatabaseAbstraction } from "networkwm-js/dist/database-abstraction";
@@ -109,15 +109,20 @@ export class NetworkWMService extends NetMDService {
         }
         await initCrypto();
         importKeys(this.keyData);
-        let legacyDevice: any, vendorId, productId, name;
-        for({ vendorId, productId, name } of DeviceIds){
+        let legacyDevice: any;
+        let matchedDevice: DeviceDefinition | null = null;
+        for(const dev of DeviceIds){
+            const { vendorId, productId, name } = dev;
             legacyDevice = findByIds(vendorId, productId);
-            if(legacyDevice) break;
+            if(legacyDevice) {
+                matchedDevice = dev;
+                break;
+            }
         }
         if(!legacyDevice) return false;
 
         if(['darwin', 'linux'].includes(process.platform)){
-            await unmountAll(vendorId, productId);
+            await unmountAll(matchedDevice.vendorId, matchedDevice.productId);
         }
 
         legacyDevice.open();
@@ -134,9 +139,12 @@ export class NetworkWMService extends NetMDService {
 
         this.deviceConnectedCallback?.(legacyDevice, webUsbDevice);
 
-        const fs = await createNWJSFS(webUsbDevice, bypassCoherencyChecks);
-        this.database = await DatabaseAbstraction.create(fs);
-        this.name = name;
+        const fs = await createNWJSFS({
+            dev: webUsbDevice,
+            definition: matchedDevice,
+        });
+        this.database = await DatabaseAbstraction.create(fs, matchedDevice);
+        this.name = matchedDevice.name;
         return true;
     }
 
@@ -234,6 +242,20 @@ export class NetworkWMService extends NetMDService {
             artist?: string;
         };
 
+        if(format.codec === 'MP3') {
+            this.cache = null;
+            return this.database.uploadMP3Track(
+                {
+                    artist: artist ?? 'Unknown Artist',
+                    album: album ?? 'Unknown Album',
+                    genre: 'Genre',
+                    title: title ?? 'Unknown Title',
+                },
+                new Uint8Array(data),
+                (done, outOf) => progressCallback({ written: done, encrypted: outOf, total: outOf })
+            );
+        }
+
         const codecFrameSizeFamily = format.codec === 'A3+' ? HiMDKBPSToFrameSize.atrac3plus : HiMDKBPSToFrameSize.atrac3;
         if(format.codec !== 'A3+' && format.codec !== 'AT3') throw new Error("Invalid format!");
         const codecInfo = generateCodecInfo(format.codec, codecFrameSizeFamily[format.bitrate!]);
@@ -244,8 +266,6 @@ export class NetworkWMService extends NetMDService {
                 album: album ?? 'Unknown Album',
                 genre: 'Genre',
                 title: title ?? 'Unknown Title',
-                trackDuration: -1,
-                trackNumber: -1, // Assume last of album and artist
             }, codecInfo,
             new Uint8Array(data),
             this.session,

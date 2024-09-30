@@ -58,9 +58,7 @@ export const CHANGELOG: ChangelogVersionInjection[] = [
                         args[i] = { interprocessType: 'function' };
                     }
                 }
-                console.log(`Invoke ${name}`);
                 const [response, error] = await ipcRenderer.invoke(name, ...args);
-                console.log(`Invoke ${name} done`);
                 if (error) throw error;
                 return await response;
             };
