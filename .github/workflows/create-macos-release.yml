@@ -1,0 +1,38 @@
+name: Build and Release macOS App
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_name:
+        description: 'Name of the release'
+        required: true
+        default: 'New Release'
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build and release macOS app
+        run: npm run dist-mac
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_NAME: ${{ github.event.inputs.release_name }}
+      - run: zip release.zip build/*.dmg
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release.zip
+          path: release.zip
