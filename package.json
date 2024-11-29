@@ -48,7 +48,7 @@
     "netmd-exploits": "^0.5.8",
     "netmd-js": "^4.2.0",
     "netmd-tocmanip": "^0.1.5",
-    "networkwm-js": "^0.1.0",
+    "networkwm-js": "^0.1.1",
     "node-fetch": "^2.6.7",
     "nufatfs": "^0.1.3",
     "sudo-prompt": "^9.2.1",
