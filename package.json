@@ -45,7 +45,7 @@
     "jconv": "^0.1.5",
     "jsbi": "^3.2.5",
     "msgpackr": "^1.9.5",
-    "netmd-exploits": "^0.5.4",
+    "netmd-exploits": "^0.5.8",
     "netmd-js": "^4.2.0",
     "netmd-tocmanip": "^0.1.5",
     "networkwm-js": "^0.1.0",
