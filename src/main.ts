@@ -177,12 +177,12 @@ function setupEncoder() {
     ipcMain.handle("invokeLocalEncoder", async (_, ffmpegPath: string, encoderPath: string, data: ArrayBuffer, sourceFilename: string, parameters: { format: Codec, enableReplayGain?: boolean }) => {
         // Pipeline:
         // inFile.ANY ==(ffmpeg)==> inFile.wav ==(encoder)==> outFile.wav
-        const tempDir = "";
+        let tempDir = '';
         if ( os.platform() === 'darwin') {
             const homeDir = app.getPath('home');
-            const tempDir = path.join(homeDir, 'Library','Caches','ElectronWMD');
+            tempDir = path.join(homeDir, 'Library','Caches','ElectronWMD');
         } else {
-            const tempDir = fs.mkdtempSync('atracenc');
+            tempDir = fs.mkdtempSync('atracenc');
         }
 
         if (!fs.existsSync(tempDir)) {
