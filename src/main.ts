@@ -4,6 +4,7 @@ import { DevicesIds as  NetMDDevicesIds } from 'netmd-js';
 import { DevicesIds as  HiMDDevicesIds } from 'himd-js';
 import { DeviceIds as NWDevicesIds, importKeys } from 'networkwm-js';
 import path from 'path';
+import os from 'os';
 import fs from 'fs';
 import { EWMDHiMD, EWMDNetMD } from './wmd/translations';
 import { Codec, NetMDFactoryService } from './wmd/original/services/interfaces/netmd';
@@ -176,7 +177,17 @@ function setupEncoder() {
     ipcMain.handle("invokeLocalEncoder", async (_, ffmpegPath: string, encoderPath: string, data: ArrayBuffer, sourceFilename: string, parameters: { format: Codec, enableReplayGain?: boolean }) => {
         // Pipeline:
         // inFile.ANY ==(ffmpeg)==> inFile.wav ==(encoder)==> outFile.wav
-        const tempDir = fs.mkdtempSync('atracenc');
+        let tempDir = '';
+        if ( os.platform() === 'darwin') {
+            const homeDir = app.getPath('home');
+            tempDir = path.join(homeDir, 'Library','Caches','ElectronWMD');
+        } else {
+            tempDir = fs.mkdtempSync('atracenc');
+        }
+
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir);
+        }
         const inFilePath = path.join(tempDir, sourceFilename);
         fs.writeFileSync(inFilePath, new Uint8Array(data));
         const intermediateFilePath = path.join(tempDir, "intermediate.wav");
