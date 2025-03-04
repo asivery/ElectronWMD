@@ -1,6 +1,6 @@
 import { DeviceStatus, DiscFormat, TrackFlag } from "netmd-js";
 import { Capability, Codec, Disc, Group, MinidiscSpec, NetMDService, RecordingCodec, TitleParameter, Track } from "./original/services/interfaces/netmd";
-import { DatabaseManager, SonyVendorNWJSUSMCDriver, UMSCNWJSSession, createNWJSFS, importKeys, initCrypto, resolvePathFromGlobalIndex, TrackMetadata, flatten, DeviceIds, DeviceDefinition, findDevice } from 'networkwm-js';
+import { DatabaseManager, SonyVendorNWJSUSMCDriver, UMSCNWJSSession, createNWJSFS, importKeys, initCrypto, resolvePathFromGlobalIndex, TrackMetadata, flatten, DeviceIds, DeviceDefinition, findDevice, decryptMP3 } from 'networkwm-js';
 import { HiMDKBPSToFrameSize, UMSCHiMDFilesystem, generateCodecInfo } from "himd-js";
 import nodeFs from 'fs';
 import { AbstractedTrack, DatabaseAbstraction } from "networkwm-js/dist/database-abstraction";
@@ -347,14 +347,19 @@ export class NetworkWMService extends NetMDService {
 
     async download(index: number, progressCallback: (progress: { read: number; total: number; }) => void): Promise<{ format: DiscFormat; data: Uint8Array; }> {
         // NW files are stored with known decryption keys.
-        // Simply invoke FS functions to read the file back.
+        // Simply invoke FS functions to read the file back...
         if(!this.cache) await this.listContent();
         const fsEntry = await this.database.database.filesystem.open(resolvePathFromGlobalIndex(this.cache.nwjsTracks![index].systemIndex), 'ro');
         if(!fsEntry) throw new Error("Cannot read audio file!");
-        const buffer = new Uint8Array(fsEntry.length);
+        let buffer = new Uint8Array(fsEntry.length);
         for(let cursor = 0; cursor < buffer.length; cursor += Math.min(4096, buffer.length - cursor)) {
             buffer.set(await fsEntry.read(4096), cursor);
             progressCallback({ read: cursor, total: buffer.length });
+        }
+        // Unless MP3s are being processed
+        if(this.cache.nwjsTracks![index].codecName === "MP3") {
+            // MP3s need to be decrypted
+            buffer = decryptMP3(buffer, this.cache.nwjsTracks![index].systemIndex, this.database.mp3DeviceKey!);
         }
         return { format: DiscFormat.spStereo, data: buffer };
     }
