@@ -1,8 +1,5 @@
 import { app, BrowserWindow, ipcMain, protocol, dialog, FileFilter } from 'electron';
-import { WebUSB, WebUSBDevice, usb } from 'usb';
-import { DevicesIds as  NetMDDevicesIds } from 'netmd-js';
-import { DevicesIds as  HiMDDevicesIds } from 'himd-js';
-import { DeviceIds as NWDevicesIds, importKeys } from 'networkwm-js';
+import { importKeys } from 'networkwm-js';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
@@ -10,12 +7,14 @@ import { EWMDHiMD, EWMDNetMD } from './wmd/translations';
 import { Codec, NetMDFactoryService } from './wmd/original/services/interfaces/netmd';
 import fetch from 'node-fetch';
 import Store from 'electron-store';
-import { Connection, getSocketName, startServer } from './macos/server-bootstrap';
+import { Connection, startServer } from './macos/server-bootstrap';
 import { spawn } from 'child_process';
 import { NetworkWMService } from './wmd/networkwm-service';
 import contextMenu from 'electron-context-menu';
 import prompt from 'electron-prompt';
 import { EKBROOTS } from 'networkwm-js/dist/encryption';
+import { Mutex } from 'async-mutex';
+import { WebUSBInterop } from './wusb-interop';
 
 const getOfRenderer = (...p: string[]) => path.join(__dirname, '..', 'renderer', ...p);
 
@@ -122,7 +121,6 @@ function setupSettings(window: BrowserWindow) {
                     return;
                 }
                 fs.writeFileSync(path.join(app.getPath('userData'), 'EKBROOTS.DES'), rawData);
-                dialog.showMessageBoxSync(window, { message: `Keyring import successful! Keys imported:\n${Object.keys(EKBROOTS).map(e => parseInt(e).toString(16).padStart(8, '0')).join('\n')}\nClick OK to restart the app.` });
                 reload(window);
             }
         }
@@ -147,20 +145,6 @@ function setupSettings(window: BrowserWindow) {
             return q;
         });
     });
-}
-
-class WebUSBInterop extends WebUSB {
-    addKnownDevice(legacy: usb.Device, webusbInstance: WebUSBDevice){
-        this.knownDevices.set(legacy, webusbInstance);
-    }
-
-    static create(){
-        const webusb = new WebUSBInterop({
-            allowedDevices: NetMDDevicesIds.concat(HiMDDevicesIds).concat(NWDevicesIds.map(e => ({ deviceId: e.productId, ...e}))).map((n) => ({ vendorId: n.vendorId, productId: n.deviceId })),
-            deviceTimeout: 10000000,
-        });
-        return webusb;
-    }
 }
 
 function setupEncoder() {
@@ -372,47 +356,104 @@ async function integrate(window: BrowserWindow) {
     });
 
     const himdService = new EWMDHiMD({ debug: true });
+
+    let keyData: Uint8Array | undefined = undefined;
+    try{
+        keyData = new Uint8Array(fs.readFileSync(path.join(app.getPath('userData'), 'EKBROOTS.DES')));
+    }catch(_){ console.log("Can't read roots") }
+    const nwService = new NetworkWMService(keyData);
+
     if(process.platform !== 'darwin') {
         const himdDeflist = traverseObject(window, () => himdService, "_himd_");
         ipcMain.handle('_himd__definedParameters', () => himdDeflist);
+        const nwDeflist = traverseObject(window, () => nwService, "_nwjs_");
+        ipcMain.handle('_nwjs__definedParameters', () => nwDeflist);    
     } else {
         const connection = new Connection();
+        connection.deviceDisconnectedCallback = () => reload(window);
+        const connectionMutex = new Mutex();
 
-        connection.callbackHandler = (name: string, ...args: any[]) => window.webContents.send("_callback", '_himd_' + name, ...args);
-        const definedMethods = getDefinedFunctions(himdService);
-        ipcMain.handle('_himd__definedParameters', () => [...definedMethods].map(e => '_himd_' + e));
-        for(let methodName of definedMethods){
+        connection.callbackHandler = (service, name: string, ...args: any[]) => window.webContents.send("_callback", (service === 'himd' ? '_himd_' : '_nwjs_') + name, ...args);
+        const himdDefinedMethods = getDefinedFunctions(himdService);
+        ipcMain.handle('_himd__definedParameters', () => [...himdDefinedMethods].map(e => '_himd_' + e));
+        for(let methodName of himdDefinedMethods){
             ipcMain.handle(`_himd_${methodName}`, async (_, ...allArgs: any[]) => {
-                if(methodName === 'connect' && !connection.socket){
-                    startServer();
-                    await new Promise<void>(res => {
-                        let interval = setInterval(() => {
-                            try{
-                                if(fs.statSync(getSocketName()).isSocket()){
-                                    clearInterval(interval);
-                                    res();
-                                    return;
-                                }
-                            }catch(ex){
-                                //pass
-                            }
-                        }, 500);
-                    })
+                console.log(`Execute: ${methodName}`);
+                if(methodName === 'connect'){
+                    let connectionEstablished = false;
+                    if(connection.socket) {
+                        connection.disconnect();
+                    }
                     try{
-                        connection.connect();
-                    }catch(ex){
-                        connection.socket = null;
-                        console.log(ex);
+                        startServer().then(() => {
+                            if(!connectionEstablished) {
+                                connection.terminateAwaitConnection();
+                            }
+                        });
+                    }catch(ex) {
                         return [null, ex];
                     }
+                    const error = await connection.awaitConnection();
+                    connectionEstablished = true;
+                    if(error) {
+                        return [null, error];
+                    }
+                }
+                if(!connection.socket) {
+                    return [null, new Error("Server not ready!")];
                 }
 
+                const release = await connectionMutex.acquire();
                 try {
-                    return [await connection.callMethod(methodName, ...allArgs), null];
+                    return [await connection.callMethod('himd', methodName, ...allArgs), null];
                 } catch (err) {
-                    console.log("Node Error: ");
+                    console.log("External HIMD Error: ");
                     console.log(err);
                     return [null, err];
+                } finally {
+                    release();
+                }
+            });
+        }
+
+        const nwjsDefinedMethods = getDefinedFunctions(himdService);
+        ipcMain.handle('_nwjs__definedParameters', () => [...nwjsDefinedMethods].map(e => '_nwjs_' + e));
+        for(let methodName of nwjsDefinedMethods){
+            ipcMain.handle(`_nwjs_${methodName}`, async (_, ...allArgs: any[]) => {
+                console.log(`Execute: ${methodName}`);
+                if(methodName === 'connect'){
+                    let connectionEstablished = false;
+                    if(connection.socket) {
+                        connection.disconnect();
+                    }
+                    try{
+                        startServer().then(() => {
+                            if(!connectionEstablished) {
+                                connection.terminateAwaitConnection();
+                            }
+                        });
+                    }catch(ex) {
+                        return [null, ex];
+                    }
+                    const error = await connection.awaitConnection();
+                    connectionEstablished = true;
+                    if(error) {
+                        return [null, error];
+                    }
+                }
+                if(!connection.socket) {
+                    return [null, new Error("Server not ready!")];
+                }
+
+                const release = await connectionMutex.acquire();
+                try {
+                    return [await connection.callMethod('nwjs', methodName, ...allArgs), null];
+                } catch (err) {
+                    console.log("External NWJS Error: ");
+                    console.log(err);
+                    return [null, err];
+                } finally {
+                    release();
                 }
             });
         }
@@ -441,16 +482,6 @@ async function integrate(window: BrowserWindow) {
         }
         console.log(list.join(', '));
     });
-
-    let keyData: Uint8Array | undefined = undefined;
-    try{
-        keyData = new Uint8Array(fs.readFileSync(path.join(app.getPath('userData'), 'EKBROOTS.DES')));
-    }catch(_){ console.log("Can't read roots") }
-
-    const nwService = new NetworkWMService(keyData);
-    // TODO: macOS
-    const himdDeflist = traverseObject(window, () => nwService, "_nwjs_");
-    ipcMain.handle('_nwjs__definedParameters', () => himdDeflist);
 
     ipcMain.handle("openFileHostDialog", async (_, filters: { name: string, extensions: string[] }[], directory?: boolean): Promise<string | null> => {
         return ewmdOpenDialog(window, filters, directory);     

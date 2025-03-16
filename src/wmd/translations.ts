@@ -32,7 +32,7 @@ export class EWMDHiMD extends HiMDFullService {
         if(this.bypassFSCoherencyChecks) {
             console.log("Warning: All FAT filesystem coherency checks are bypassed!\nThis might cause data corruption!")
         }
-        let legacyDevice, vendorId, deviceId;
+        let legacyDevice: any, vendorId, deviceId;
         for({ vendorId, deviceId } of DevicesIds){
             legacyDevice = findByIds(vendorId, deviceId);
             if(legacyDevice) break;
@@ -51,6 +51,9 @@ export class EWMDHiMD extends HiMDFullService {
         }catch(ex){
             console.log("Couldn't detach the kernel driver. Expected on Windows.");
         }
+        try{
+            await new Promise<void>(res => legacyDevice.reset(res));
+        }catch(_){}
         const webUsbDevice = await WebUSBDevice.createInstance(legacyDevice);
         await webUsbDevice.open();
         this.deviceConnectedCallback?.(legacyDevice, webUsbDevice);

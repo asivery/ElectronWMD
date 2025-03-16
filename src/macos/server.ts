@@ -2,24 +2,26 @@ import fs from 'fs';
 import { EWMDHiMD } from '../wmd/translations';
 import { createServer } from 'net';
 import { PackrStream, UnpackrStream } from 'msgpackr';
-import { join as pathJoin } from 'path';
-import { WebUSB } from 'usb';
-import { DevicesIds as HiMDDevicesIds } from 'himd-js';
+import path from 'path';
+import { NetworkWMService } from '../wmd/networkwm-service';
+import { WebUSBInterop } from '../wusb-interop';
 
-export function getSocketName(){
-    return pathJoin(process.env['TMPDIR'] || '/tmp/', 'ewmd-intermediary.sock');
+const temp = process.env['TMPDIR'] || '/tmp/';
+
+const socketName = path.join(temp, 'ewmd-intermediary.sock');
+const pidFile = path.join(temp, 'ewmd-intermediary.pid');
+const canFail = (func: () => void) => {
+    try{ func() } catch(_){}
 }
 
-const socketName = getSocketName();
 function closeAll(){
-    fs.unlinkSync(socketName);
+    canFail(() => fs.unlinkSync(socketName));
+    canFail(() => fs.unlinkSync(pidFile));
     process.exit();
 }
-function main(){
-    const webusb = new WebUSB({
-        allowedDevices: HiMDDevicesIds.map((n) => ({ vendorId: n.vendorId, productId: n.deviceId })),
-        deviceTimeout: 10000000,
-    });
+function main() {
+    fs.writeFileSync(pidFile, `${process.pid}`);
+    const webusb = WebUSBInterop.create();
 
     Object.defineProperty(global, 'navigator', {
         writable: false,
@@ -30,9 +32,7 @@ function main(){
         value: global,
     });
 
-    try{
-        fs.unlinkSync(socketName);
-    }catch(e){}
+    canFail(() => fs.unlinkSync(socketName));
 
     const server = createServer();
     server.listen(socketName);
@@ -46,30 +46,38 @@ function main(){
 
         const himdDevice = new EWMDHiMD({ debug: true });
 
+        let keyData: Uint8Array | undefined = undefined;
+        try{
+            keyData = new Uint8Array(fs.readFileSync(path.join(process.argv[2], 'EKBROOTS.DES')));
+        }catch(_){ console.log("Can't read roots") }
+        const nwDevice = new NetworkWMService(keyData);
+
         socket.pipe(unpackerStream);
         packerStream.pipe(socket);
 
-        function sendCallback(callbackFunctionName: string, ...args: any[]){
+        function sendCallback(service: string, callbackFunctionName: string, ...args: any[]){
             packerStream.write({
                 type: 'callback',
                 name: callbackFunctionName,
+                service,
                 value: args,
             })
         }
 
-        unpackerStream.on('data', async ({ name, allArgs }: { name: string, allArgs: any[] }) => {
+        unpackerStream.on('data', async ({ service, name, allArgs }: { service: string, name: string, allArgs: any[] }) => {
             console.log(`Call to ${name}`);
             for (let i = 0; i < allArgs.length; i++) {
                 if (allArgs[i]?.interprocessType === 'function') {
                     allArgs[i] = async (...args: any[]) =>
                         {
-                            sendCallback(`${name}_callback${i}`, ...args);
+                            sendCallback(service, `${name}_callback${i}`, ...args);
                         }
                 }
             }
             let res;
             try {
-                res = [await (himdDevice as any)[name](...allArgs), null];
+                const serviceObject = service === 'nwjs' ? nwDevice : himdDevice;
+                res = [await (serviceObject as any)[name](...allArgs), null];
             } catch (err) {
                 console.log("Node Error: ");
                 console.log(err);
@@ -82,6 +90,15 @@ function main(){
                 value: res,
             });
         })
+
+        const addKnownDeviceCB = webusb.addKnownDevice.bind(webusb);
+        nwDevice.deviceConnectedCallback = addKnownDeviceCB;
+        himdDevice.deviceConnectedCallback = addKnownDeviceCB;
+        webusb.ondisconnect = event => {
+            if([nwDevice, himdDevice].some(e => e.isDeviceConnected(event.device))) {
+                closeAll();
+            }
+        }
     });
 }
 

@@ -88,7 +88,6 @@ export class NetworkWMService extends NetMDService {
             Capability.himdTitles,
             Capability.contentList,
             Capability.trackUpload,
-            Capability.requiresManualFlush,
             Capability.metadataEdit,
             Capability.trackDownload,
         ];

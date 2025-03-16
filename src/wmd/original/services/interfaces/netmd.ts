@@ -8,7 +8,7 @@ import {
     Wireformat,
     MDTrack,
     getDeviceStatus,
-    DeviceStatus,
+    DeviceStatus as NetMDDeviceStatus,
     Group as NetMDGroup,
     renameDisc,
     DiscFormat,
@@ -73,8 +73,6 @@ export enum Capability {
     himdTitles,
     fullWidthSupport,
     nativeMonoUpload,
-
-    requiresManualFlush,
 }
 
 export enum ExploitCapability {
@@ -145,6 +143,8 @@ export interface MinidiscSpec {
     translateDefaultMeasuringModeTo(mode: Codec, defaultMeasuringModeDuration: number): number;
     translateToDefaultMeasuringModeFrom(mode: Codec, defaultMeasuringModeDuration: number): number;
 }
+
+export type DeviceStatus = NetMDDeviceStatus & { canBeFlushed?: boolean };
 
 export const WireformatDict: { [k: string]: Wireformat } = {
     SP: Wireformat.pcm,
@@ -255,10 +255,6 @@ export abstract class NetMDService {
 
     async factory(): Promise<NetMDFactoryService | null> {
         return null;
-    }
-
-    async canBeFlushed(): Promise<boolean> {
-        return false;
     }
 
     async flush(): Promise<void> {}
