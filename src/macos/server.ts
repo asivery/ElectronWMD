@@ -20,6 +20,12 @@ function closeAll(){
     process.exit();
 }
 function main() {
+    if(fs.existsSync(pidFile)) {
+        const oldPid = parseInt(fs.readFileSync(pidFile).toString());
+        canFail(() => process.kill(oldPid, 'SIGTERM'));
+        canFail(() => fs.unlinkSync(pidFile));
+    }
+    
     fs.writeFileSync(pidFile, `${process.pid}`);
     const webusb = WebUSBInterop.create();
 

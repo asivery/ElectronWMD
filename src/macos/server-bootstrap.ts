@@ -13,15 +13,8 @@ export function startServer(){
     const temp = process.env['TMPDIR'] || '/tmp/';
     
     const socketName = pathJoin(temp, 'ewmd-intermediary.sock');
-    const pidFile = pathJoin(temp, 'ewmd-intermediary.pid');
     const canFail = (func: () => void) => {
         try{ func() } catch(_){}
-    }
-    
-    if(fs.existsSync(pidFile)) {
-        const oldPid = parseInt(fs.readFileSync(pidFile).toString());
-        canFail(() => process.kill(oldPid, 'SIGKILL'));
-        canFail(() => fs.unlinkSync(pidFile));
     }
     canFail(() => fs.unlinkSync(socketName));
 
