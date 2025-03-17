@@ -385,11 +385,7 @@ async function integrate(window: BrowserWindow) {
                         connection.disconnect();
                     }
                     try{
-                        startServer().then(() => {
-                            if(!connectionEstablished) {
-                                connection.terminateAwaitConnection();
-                            }
-                        });
+                        startServer();
                     }catch(ex) {
                         return [null, ex];
                     }
@@ -427,11 +423,7 @@ async function integrate(window: BrowserWindow) {
                         connection.disconnect();
                     }
                     try{
-                        startServer().then(() => {
-                            if(!connectionEstablished) {
-                                connection.terminateAwaitConnection();
-                            }
-                        });
+                        startServer();
                     }catch(ex) {
                         return [null, ex];
                     }

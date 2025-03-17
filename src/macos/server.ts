@@ -20,6 +20,8 @@ function closeAll(){
     process.exit();
 }
 function main() {
+    console.log("ElectronWMD's MacOS SCSI intermediate server by asivery");
+    console.log("Starting up...");
     if(fs.existsSync(pidFile)) {
         const oldPid = parseInt(fs.readFileSync(pidFile).toString());
         canFail(() => process.kill(oldPid, 'SIGTERM'));

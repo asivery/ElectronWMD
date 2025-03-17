@@ -1,4 +1,4 @@
-import { exec as sudoExec } from 'sudo-prompt';
+import { spawn } from 'child_process'
 import { join as pathJoin } from 'path';
 import { app } from 'electron';
 import { Socket } from 'net';
@@ -23,17 +23,16 @@ export function startServer(){
     if(!fs.existsSync(serverPath)) {
         serverPath = pathJoin(app.getAppPath(), "macos", "server.js");
     }
-    let envs = "ELECTRON_RUN_AS_NODE=1";
+    let envs = `ELECTRON_RUN_AS_NODE=1 TMPDIR="${temp}"`;
     if(process.env.EWMD_HIMD_BYPASS_COHERENCY_CHECK) {
         envs += ` EWMD_HIMD_BYPASS_COHERENCY_CHECK=${process.env.EWMD_HIMD_BYPASS_COHERENCY_CHECK}`;
     }
-    return new Promise<void>((res) => 
-        sudoExec(`${envs} "${executablePath}" "${serverPath}" "${app.getPath('userData')}"`, {
-            name: "ElectronWMD",
-        }, (err, stdout, stderr) => {
-            res();
-        })
-    );
+    // Many people know part of the famous quote: "Think different...", but not many know the whole thing:
+    // "Think different... Think of all the different ways we can take something simple and fuck it up"
+    const fullCommand = `${envs} "${executablePath}" "${serverPath}" "${app.getPath('userData')}"`;
+    const osa = `tell application "Terminal" \n activate \n do script "echo ${btoa(fullCommand)} | base64 -d | sudo zsh"\nend tell`;
+    
+    spawn('/usr/bin/osascript', ['-e', osa]);
 }
 
 export class Connection {
