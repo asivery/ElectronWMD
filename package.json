@@ -41,7 +41,7 @@
     "electron-context-menu": "^3.6.1",
     "electron-prompt": "^1.7.0",
     "electron-store": "^8.1.0",
-    "himd-js": "^0.2.2",
+    "himd-js": "^0.2.4",
     "jconv": "^0.1.5",
     "jsbi": "^3.2.5",
     "msgpackr": "^1.9.5",
