@@ -51,9 +51,6 @@ export class EWMDHiMD extends HiMDFullService {
         }catch(ex){
             console.log("Couldn't detach the kernel driver. Expected on Windows.");
         }
-        try{
-            await new Promise<void>(res => legacyDevice.reset(res));
-        }catch(_){}
         const webUsbDevice = await WebUSBDevice.createInstance(legacyDevice);
         await webUsbDevice.open();
         this.deviceConnectedCallback?.(legacyDevice, webUsbDevice);
