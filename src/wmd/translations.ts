@@ -4,7 +4,7 @@ import { NetMDUSBService } from "./original/services/interfaces/netmd";
 import { makeGetAsyncPacketIteratorOnWorkerThread } from 'netmd-js/dist/node-encrypt-worker';
 import path from 'path';
 import { Worker } from 'worker_threads';
-import { makeAsyncWorker } from "himd-js/dist/node-crypto-worker";
+import { makeAsyncWorker, makeAsyncCryptoBlockProvider } from "himd-js/dist/node-crypto-worker";
 import { DevicesIds, UMSCHiMDFilesystem } from "himd-js";
 import { WebUSBDevice, findByIds, usb } from 'usb';
 import { unmountAll } from "../unmount-drives";
@@ -24,7 +24,7 @@ export class EWMDHiMD extends HiMDFullService {
     override getWorker(): any[] {
         return [new Worker(
             path.join(__dirname, '..', '..', 'node_modules', 'himd-js', 'dist', 'node-crypto-worker.js')
-        ), makeAsyncWorker];
+        ), makeAsyncWorker, makeAsyncCryptoBlockProvider];
     }
 
     async pair() {
