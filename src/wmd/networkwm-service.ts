@@ -144,6 +144,18 @@ export class NetworkWMService extends NetMDService {
         });
         this.database = await DatabaseAbstraction.create(fs, matchedDevice);
         this.name = matchedDevice.name;
+        Object.defineProperty(globalThis, 'signNWJS', {
+            configurable: true,
+            writable: true,value: async () => {
+                console.log("Opening session...");
+                const session = new UMSCNWJSSession(fs.driver, fs);
+                console.log("Authorizing...");
+                await session.performAuthorization();
+                console.log("Signing...");
+                await session.finalizeSession();
+                console.log("Done.");
+            },
+        });
         return true;
     }
 

@@ -456,6 +456,7 @@ async function integrate(window: BrowserWindow) {
     });
 
     ipcMain.handle('_signHiMDDisc', () => (global as any).signHiMDDisc());
+    ipcMain.handle('_signNWJS', () => (global as any).signNWJS());
 
     ipcMain.handle('_debug_himdPullFile', async (e, a: string, b: string) => {
         console.log(`Pulling HiMD file ${a} to local ${b}`);

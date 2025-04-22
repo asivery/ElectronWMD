@@ -135,6 +135,10 @@ export const CHANGELOG: ChangelogVersionInjection[] = [
         return JSON.parse(await ipcRenderer.invoke('_unrestrictedFetch', url, parameters));
     }
 
+    async function signNWJS(){
+        await ipcRenderer.invoke("_signNWJS");
+    }
+    
     async function signHiMDDisc(){
         await ipcRenderer.invoke("_signHiMDDisc");
     }
@@ -160,6 +164,7 @@ export const CHANGELOG: ChangelogVersionInjection[] = [
         himdFullInterface: himdIface,
         nwInterface: nwjsIface,
         signHiMDDisc,
+        signNWJS,
         openFileHostDialog,
         reload,
 
