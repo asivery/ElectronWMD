@@ -32,6 +32,7 @@ import {
     TrackFlag,
     getRemainingCharactersForTitles,
     getCellsForTitle,
+    readPatch,
 } from 'netmd-js';
 import { makeGetAsyncPacketIteratorOnWorkerThread } from 'netmd-js/dist/web-encrypt-worker';
 import { Logger } from 'netmd-js/dist/logger';
@@ -392,10 +393,12 @@ export class NetMDUSBService extends NetMDService {
                     'font-size: 15px; color: cyan;'
                 );
                 console.log('%c- patch() - a function which patches the device', 'font-size: 15px; color: cyan;');
+                console.log('%c- readPatch() - a function which reads a patch from the device', 'font-size: 15px; color: cyan;');
                 console.log('%c- unpatch() - a function which removes a patch', 'font-size: 15px; color: cyan;');
                 console.log("%c- interface - an instance of netmd-js's NetMDInterface", 'font-size: 15px; color: cyan;');
                 Object.defineProperty(window, 'formatQuery', { value: formatQuery, configurable: true });
                 Object.defineProperty(window, 'scanQuery', { value: scanQuery, configurable: true });
+                Object.defineProperty(window, 'readPatch', { value: readPatch, configurable: true });
                 Object.defineProperty(window, 'patch', { value: patch, configurable: true });
                 Object.defineProperty(window, 'unpatch', { value: unpatch, configurable: true });
                 Object.defineProperty(window, 'interface', { value: this.netmdInterface, configurable: true });
