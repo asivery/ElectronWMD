@@ -49,8 +49,14 @@ function main() {
     server.on('connection', (socket) => {
         console.log("Connection established.");
         socket.on('close', closeAll);
-        const packerStream = new PackrStream();
-        const unpackerStream = new UnpackrStream();
+        const packerStream = new PackrStream({
+            copyBuffers: true,
+            structuredClone: true,
+        });
+        const unpackerStream = new UnpackrStream({
+            copyBuffers: true,
+            structuredClone: true,
+        });
 
         const himdDevice = new EWMDHiMD({ debug: true });
 

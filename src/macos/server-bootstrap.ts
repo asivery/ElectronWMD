@@ -50,7 +50,10 @@ export class Connection {
     connect(){
         return new Promise<void>(res => {
             this.socket = new Socket();
-            this.outStream = new PackrStream();
+            this.outStream = new PackrStream({
+                copyBuffers: true,
+                structuredClone: true,
+            });
             this.socket.on('connect', (err: boolean) => {
                 if(err){
                     console.log("Error!");
@@ -58,7 +61,10 @@ export class Connection {
                 }
                 console.log('Connected');
 
-                const unpackerStream = new UnpackrStream();
+                const unpackerStream = new UnpackrStream({
+                    copyBuffers: true,
+                    structuredClone: true,
+                });
                 this.socket.pipe(unpackerStream);
                 this.outStream.pipe(this.socket);
                 unpackerStream.on('data', ({ type, name, value, service }: { type: string, name: string, service: string, value: any }) => {

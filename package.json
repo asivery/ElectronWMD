@@ -44,7 +44,7 @@
     "himd-js": "^0.2.6",
     "jconv": "^0.1.5",
     "jsbi": "^3.2.5",
-    "msgpackr": "^1.9.5",
+    "msgpackr": "^1.11.2",
     "netmd-exploits": "^0.5.10",
     "netmd-js": "^4.2.0",
     "netmd-tocmanip": "^0.1.5",
