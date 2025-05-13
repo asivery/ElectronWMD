@@ -90,15 +90,17 @@ export enum ExploitCapability {
     enterServiceMode,
 }
 
-export type CodecFamily = 'SP' | 'MONO' | 'LP2' | 'LP4' | HiMDCodecName;
+export type CodecFamily = 'SPS' | 'SPM' | HiMDCodecName;
 export interface RecordingCodec {
     codec: CodecFamily;
-    availableBitrates?: number[];
-    defaultBitrate?: number;
+    defaultBitrate: number;
+    availableBitrates: number[];
+    userFriendlyName?: string;
 }
+
 export interface Codec {
     codec: CodecFamily;
-    bitrate?: number;
+    bitrate: number;
 }
 
 export interface Track {
@@ -137,11 +139,14 @@ export interface MinidiscSpec {
     readonly availableFormats: RecordingCodec[];
     readonly defaultFormat: Codec;
     readonly specName: string;
+    readonly measurementUnits: 'bytes' | 'frames';
     sanitizeHalfWidthTitle(title: string): string;
     sanitizeFullWidthTitle(title: string): string;
     getRemainingCharactersForTitles(disc: Disc): { halfWidth: number; fullWidth: number };
     getCharactersForTitle(track: Track): { halfWidth: number; fullWidth: number };
+    // In bytes-measuring mode, this should throw.
     translateDefaultMeasuringModeTo(mode: Codec, defaultMeasuringModeDuration: number): number;
+    // In bytes-measuring mode, this will translate duration in seconds to bytes.
     translateToDefaultMeasuringModeFrom(mode: Codec, defaultMeasuringModeDuration: number): number;
 }
 
@@ -157,20 +162,16 @@ export const WireformatDict: { [k: string]: Wireformat } = {
 export type TitleParameter = string | { title?: string; album?: string; artist?: string };
 
 export class DefaultMinidiscSpec implements MinidiscSpec {
-    public readonly availableFormats: RecordingCodec[] = [{ codec: 'SP' }, { codec: 'MONO' }, { codec: 'LP2' }, { codec: 'LP4' }];
-    public readonly defaultFormat = { codec: 'SP' } as const;
+    public readonly availableFormats: RecordingCodec[] = [{ codec: 'SPS', defaultBitrate: 292, userFriendlyName: 'SP', availableBitrates: [292] }, { codec: 'SPM', defaultBitrate: 146, userFriendlyName: 'MONO', availableBitrates: [146] }, { codec: 'AT3', defaultBitrate: 132, userFriendlyName: 'LP2', availableBitrates: [132] }, { codec: 'AT3', defaultBitrate: 66, userFriendlyName: 'LP4', availableBitrates: [66] }];
+    public readonly defaultFormat = { codec: 'SPS' as const, bitrate: 292 };
     public readonly specName = 'MD';
+    public readonly measurementUnits = 'frames';
 
     sanitizeHalfWidthTitle(title: string): string {
         return sanitizeHalfWidthTitle(title);
     }
     sanitizeFullWidthTitle(title: string): string {
         return sanitizeFullWidthTitle(title);
-    }
-
-    private fixupCodec(codec: Codec) {
-        if (codec.codec !== 'AT3') return codec;
-        return { codec: codec.bitrate === 66 ? 'LP4' : 'LP2' };
     }
 
     getRemainingCharactersForTitles(disc: Disc) {
@@ -185,28 +186,11 @@ export class DefaultMinidiscSpec implements MinidiscSpec {
         };
     }
 
-    translateDefaultMeasuringModeTo(_mode: Codec, defaultMeasuringModeDuration: number): number {
-        const mode = this.fixupCodec(_mode);
-        return (
-            {
-                SP: 1,
-                MONO: 2,
-                LP2: 2,
-                LP4: 4,
-            }[mode.codec as 'SP' | 'LP2' | 'LP4']! * defaultMeasuringModeDuration
-        );
+    translateDefaultMeasuringModeTo(mode: Codec, defaultMeasuringModeDuration: number): number {
+        return Math.floor(292 / mode.bitrate) * defaultMeasuringModeDuration;
     }
-    translateToDefaultMeasuringModeFrom(_mode: Codec, durationInMode: number): number {
-        const mode = this.fixupCodec(_mode);
-        return (
-            durationInMode /
-            {
-                SP: 1,
-                MONO: 2,
-                LP2: 2,
-                LP4: 4,
-            }[mode.codec as 'SP' | 'LP2' | 'LP4']!
-        );
+    translateToDefaultMeasuringModeFrom(mode: Codec, durationInMode: number): number {
+        return durationInMode / Math.floor(292 / mode.bitrate);
     }
 }
 
@@ -338,9 +322,9 @@ export function convertTrackToWMD(source: NetMDTrack) {
         ...source,
         duration: Math.ceil(source.duration / 512),
         encoding: {
-            [Encoding.sp]: { codec: 'SP' },
-            [Encoding.lp2]: { codec: 'LP2' },
-            [Encoding.lp4]: { codec: 'LP4' },
+            [Encoding.sp]: source.channel === 1 ? { codec: 'SPM', bitrate: 146 } : { codec: 'SPS', bitrate: 292 },
+            [Encoding.lp2]: { codec: 'AT3', bitrate: 132 },
+            [Encoding.lp4]: { codec: 'AT3', bitrate: 66 },
         }[source.encoding]! as Codec,
     };
 }
@@ -349,11 +333,7 @@ export function convertTrackToNJS(source: Track): NetMDTrack {
     return {
         ...source,
         duration: source.duration * 512,
-        encoding: {
-            SP: Encoding.sp,
-            LP2: Encoding.lp2,
-            LP4: Encoding.lp4,
-        }[['SP', 'LP2', 'LP4'].includes(source.encoding.codec) ? (source.encoding.codec as 'SP' | 'LP2' | 'LP4') : 'SP'],
+        encoding: source.encoding.codec.startsWith('SP') ? Encoding.sp : source.encoding.bitrate === 132 ? Encoding.lp2 : Encoding.lp4,
     };
 }
 
@@ -710,8 +690,13 @@ export class NetMDUSBService extends NetMDService {
         _format: Codec,
         progressCallback: (progress: { written: number; encrypted: number; total: number }) => void
     ) {
-        const format = _format.codec === 'AT3' ? { codec: _format.bitrate === 66 ? 'LP4' : 'LP2' } :
-                     _format.codec === 'MONO' ? { codec: 'SP' } : _format;
+        // This is NetMD - only 4 options supported.
+        let format;
+        if(_format.codec === 'AT3') {
+            format = _format.bitrate === 66 ? 'LP4' : 'LP2';
+        } else if(_format.codec == 'SPS' || _format.codec === 'SPM') {
+            format = "SP"
+        } else throw new Error('Invalid format for NetMD upload');
         if (this.currentSession === undefined) {
             throw new Error('Cannot upload without initializing a session first');
         }
@@ -731,12 +716,12 @@ export class NetMDUSBService extends NetMDService {
 
         const halfWidthTitle = sanitizeHalfWidthTitle(title);
         fullWidthTitle = sanitizeFullWidthTitle(fullWidthTitle);
-        const mdTrack = new MDTrack(halfWidthTitle, WireformatDict[format.codec], data, 0x400, fullWidthTitle, webWorkerAsyncPacketIterator);
+        const mdTrack = new MDTrack(halfWidthTitle, WireformatDict[format], data, 0x400, fullWidthTitle, webWorkerAsyncPacketIterator);
 
         await this.currentSession.downloadTrack(mdTrack, ({ writtenBytes }) => {
             written = writtenBytes;
             updateProgress();
-        }, _format.codec === 'MONO' ? DiscFormat.spMono : undefined);
+        }, _format.codec === 'SPM' ? DiscFormat.spMono : undefined);
 
         w.terminate();
         this.dropCachedContentList();

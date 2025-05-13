@@ -28,6 +28,8 @@ import {
     HiMDFilesystem,
     DevicesIds,
     deleteTracks,
+    HIMD_AUDIO_SIZE,
+    BLOCK_SIZE,
 } from 'himd-js';
 import {
     Capability,
@@ -57,9 +59,10 @@ export class HiMDSpec implements MinidiscSpec {
               { codec: 'A3+', availableBitrates: [352, 256, 192, 64, 48], defaultBitrate: 256 },
               { codec: 'AT3', availableBitrates: [132, 105, 66], defaultBitrate: 132 },
               { codec: 'MP3', availableBitrates: [320, 256, 192, 128, 96, 64], defaultBitrate: 192 },
-              { codec: 'PCM' },
+              { codec: 'PCM', availableBitrates: [1411], defaultBitrate: 1411 },
           ]
         : [{ codec: 'MP3', availableBitrates: [320, 256, 192, 128, 96, 64], defaultBitrate: 192 }];
+    public readonly measurementUnits = 'bytes';
     public defaultFormat: Codec = this.unrestricted ? { codec: 'A3+', bitrate: 256 } : { codec: 'MP3', bitrate: 192 };
     public specName: string;
 
@@ -100,29 +103,29 @@ export class HiMDSpec implements MinidiscSpec {
     }
 
     translateDefaultMeasuringModeTo(codec: Codec, defaultMeasuringModeDuration: number): number {
-        switch (codec.codec) {
-            default:
-                return (this.defaultFormat.bitrate! / codec.bitrate!) * defaultMeasuringModeDuration;
-            case 'LP2':
-                return (this.defaultFormat.bitrate! / 132) * defaultMeasuringModeDuration;
-            case 'LP4':
-                return (this.defaultFormat.bitrate! / 64) * defaultMeasuringModeDuration;
-            case 'PCM':
-                return (this.defaultFormat.bitrate! / 1411) * defaultMeasuringModeDuration;
-        }
+        throw new Error("Illegal in bytes-measuring mode!");
     }
 
     translateToDefaultMeasuringModeFrom(codec: Codec, defaultMeasuringModeDuration: number): number {
-        switch (codec.codec) {
-            default:
-                return defaultMeasuringModeDuration / (this.defaultFormat.bitrate! / codec.bitrate!);
-            case 'LP2':
-                return defaultMeasuringModeDuration / (this.defaultFormat.bitrate! / 132);
-            case 'LP4':
-                return defaultMeasuringModeDuration / (this.defaultFormat.bitrate! / 64);
+        const imprecise = defaultMeasuringModeDuration * codec.bitrate * 1024 / 8;
+        let frameSize;
+        switch(codec.codec) {
+            case 'A3+':
+                frameSize = HiMDKBPSToFrameSize.atrac3plus[codec.bitrate]!;
+                break;
+            case 'AT3':
+                frameSize = HiMDKBPSToFrameSize.atrac3[codec.bitrate]!;
+                break;
             case 'PCM':
-                return defaultMeasuringModeDuration / (this.defaultFormat.bitrate! / 1411);
+                frameSize = 64;
+                break;
+            default:
+                return imprecise;
         }
+        const framesPerBlock = Math.floor(HIMD_AUDIO_SIZE / frameSize);
+        const frames = Math.ceil(imprecise / frameSize);
+        const actual = (frames / framesPerBlock) * BLOCK_SIZE;
+        return actual;
     }
     sanitizeFullWidthTitle(title: string) {
         return title;
@@ -190,14 +193,13 @@ export class HiMDRestrictedService extends NetMDService {
 
     protected async reloadCache() {
         if (this.cachedDisc === undefined) {
-            // In kB
-            const totalSpaceTaken = (await this.himd!.filesystem.getSizeOfDirectory('/')) / 1024;
-            const totalVolumeSize = (await this.himd!.filesystem.getTotalSpace()) / 1024;
-            const defaultBitrate = this.spec.defaultFormat.bitrate! / 8; // in kB/s
+            let { left, total, used } = await this.himd!.filesystem.statFilesystem();
 
-            const totalSeconds = totalVolumeSize / defaultBitrate;
-            const takenSeconds = totalSpaceTaken / defaultBitrate;
-            const remainingSeconds = totalSeconds - takenSeconds;
+            if(left < 1048576) {
+                // If we have less than a MiB left, make it seem the drive is 100% filled.
+                used += left;
+                left = 0;
+            }
 
             const trackCount = this.himd!.getTrackCount();
             const groups = getGroups(this.himd!);
@@ -223,10 +225,8 @@ export class HiMDRestrictedService extends NetMDService {
                         duration: trk.duration,
                     })) as Track[],
                 })),
-                left: remainingSeconds,
-                total: totalSeconds,
+                left, total, used,
                 trackCount,
-                used: takenSeconds,
                 writable: false,
                 writeProtected: true,
             };
@@ -576,11 +576,6 @@ export class HiMDFullService extends HiMDRestrictedService {
             const stream = new HiMDWriteStream(this.himd!, this.atdata!, true);
             const titleObject = title as { title?: string; album?: string; artist?: string };
             let frameSize;
-            if (format.codec === 'LP2') {
-                format = { codec: 'AT3', bitrate: 66 };
-            } else if (format.codec === 'LP4') {
-                format = { codec: 'AT3', bitrate: 132 };
-            }
             switch (format.codec) {
                 case 'A3+':
                     frameSize = HiMDKBPSToFrameSize.atrac3plus[format.bitrate!];

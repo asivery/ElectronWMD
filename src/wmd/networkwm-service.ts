@@ -1,73 +1,14 @@
 import { DeviceStatus, DiscFormat, TrackFlag } from "netmd-js";
 import { Capability, Codec, Disc, Group, MinidiscSpec, NetMDService, RecordingCodec, TitleParameter, Track } from "./original/services/interfaces/netmd";
-import { DatabaseManager, SonyVendorNWJSUSMCDriver, UMSCNWJSSession, createNWJSFS, importKeys, initCrypto, resolvePathFromGlobalIndex, TrackMetadata, flatten, DeviceIds, DeviceDefinition, findDevice, decryptMP3 } from 'networkwm-js';
+import { SonyVendorNWJSUSMCDriver, UMSCNWJSSession, createNWJSFS, importKeys, initCrypto, resolvePathFromGlobalIndex, TrackMetadata, DeviceIds, DeviceDefinition, decryptMP3 } from 'networkwm-js';
 import { HiMDKBPSToFrameSize, UMSCHiMDFilesystem, generateCodecInfo } from "himd-js";
-import nodeFs from 'fs';
 import { AbstractedTrack, DatabaseAbstraction } from "networkwm-js/dist/database-abstraction";
 import { unmountAll } from "../unmount-drives";
-import { WebUSB, WebUSBDevice, findByIds, usb } from "usb";
-
-export class NWJSSpec implements MinidiscSpec {
-    constructor(private unrestricted: boolean = false) {
-        this.specName = unrestricted ? 'NWJS' : 'NWJS_restricted';
-    }
-    public readonly availableFormats: RecordingCodec[] = this.unrestricted
-        ? [
-              { codec: 'A3+', availableBitrates: [352, 256, 192, 64, 48], defaultBitrate: 256 },
-              { codec: 'AT3', availableBitrates: [132, 105, 66], defaultBitrate: 132 },
-              { codec: 'MP3', availableBitrates: [320, 256, 192, 128, 96, 64], defaultBitrate: 192 },
-          ]
-        : [{ codec: 'MP3', availableBitrates: [320, 256, 192, 128, 96, 64], defaultBitrate: 192 }];
-    public readonly defaultFormat: Codec = this.unrestricted ? { codec: 'A3+', bitrate: 256 } : { codec: 'MP3', bitrate: 192 };
-    public readonly specName: string;
-
-    getRemainingCharactersForTitles(disc: Disc): { halfWidth: number; fullWidth: number } {
-        return { halfWidth: 10000000, fullWidth: 1 };
-    }
-
-    getCharactersForTitle(track: Track): { halfWidth: number; fullWidth: number } {
-        // FIXME
-        return { halfWidth: 0, fullWidth: 0 };
-    }
-
-    translateDefaultMeasuringModeTo(codec: Codec, defaultMeasuringModeDuration: number): number {
-        switch (codec.codec) {
-            default:
-                return (this.defaultFormat.bitrate! / codec.bitrate!) * defaultMeasuringModeDuration;
-            case 'LP2':
-                return (this.defaultFormat.bitrate! / 132) * defaultMeasuringModeDuration;
-            case 'LP4':
-                return (this.defaultFormat.bitrate! / 64) * defaultMeasuringModeDuration;
-            case 'PCM':
-                return (this.defaultFormat.bitrate! / 1411) * defaultMeasuringModeDuration;
-        }
-    }
-
-    translateToDefaultMeasuringModeFrom(codec: Codec, defaultMeasuringModeDuration: number): number {
-        switch (codec.codec) {
-            default:
-                return defaultMeasuringModeDuration / (this.defaultFormat.bitrate! / codec.bitrate!);
-            case 'LP2':
-                return defaultMeasuringModeDuration / (this.defaultFormat.bitrate! / 132);
-            case 'LP4':
-                return defaultMeasuringModeDuration / (this.defaultFormat.bitrate! / 64);
-            case 'PCM':
-                return defaultMeasuringModeDuration / (this.defaultFormat.bitrate! / 1411);
-        }
-    }
-    sanitizeFullWidthTitle(title: string) {
-        return title;
-    }
-    sanitizeHalfWidthTitle(title: string) {
-        return title;
-    }
-}
-
+import { WebUSBDevice, findByIds, usb } from "usb";
 
 export class NetworkWMService extends NetMDService {
     private name: string = "";
     private database: DatabaseAbstraction | null = null;
-    private spec = new NWJSSpec(true);
     private dirty = false;
     private cache: {
         nwjsTracks: AbstractedTrack[],
@@ -169,13 +110,13 @@ export class NetworkWMService extends NetMDService {
             const nwjsTracks: AbstractedTrack[] = [];
             const groups = [];
 
-            const totalSpaceTaken = (await this.database!.database.filesystem.getSizeOfDirectory('/')) / 1024;
-            const totalVolumeSize = (await this.database!.database.filesystem.getTotalSpace()) / 1024;
-            const defaultBitrate = this.spec.defaultFormat.bitrate! / 8; // in kB/s
+            let { left, total, used } = await this.database.database.filesystem.statFilesystem();
 
-            const totalSeconds = totalVolumeSize / defaultBitrate;
-            const takenSeconds = totalSpaceTaken / defaultBitrate;
-            const remainingSeconds = totalSeconds - takenSeconds;
+            if(left < 4 * 1048576) {
+                // If we have less than 4 MiB left, make it seem the drive is 100% filled.
+                used += left;
+                left = 0;
+            }
 
             let i = 0;
             for(let artist of sorted){
@@ -204,9 +145,7 @@ export class NetworkWMService extends NetMDService {
                 }
             }
             this.cache = {
-                left: remainingSeconds,
-                total: totalSeconds,
-                used: takenSeconds,
+                left, total, used,
 
                 groups,
                 nwjsTracks,
@@ -379,6 +318,7 @@ export class NetworkWMService extends NetMDService {
         window.alert("In Network Walkmans groups are virtual! (?)");
         return Promise.resolve();
     }
+
     async renameGroup(groupIndex: number, newTitle: string, newFullWidthTitle?: string): Promise<void> {
         // Check if the new title isn't ambiguous.
         if(!this.cache) await this.listContent();

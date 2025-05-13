@@ -53,6 +53,11 @@ export class EWMDHiMD extends HiMDFullService {
         }
         const webUsbDevice = await WebUSBDevice.createInstance(legacyDevice);
         await webUsbDevice.open();
+        if(process.platform === 'linux') {
+            // TODO: Check windows.
+            // Resetting on MacOS reattaches the system driver.
+            await webUsbDevice.reset();
+        }
         this.deviceConnectedCallback?.(legacyDevice, webUsbDevice);
         this.fsDriver = new UMSCHiMDFilesystem(webUsbDevice);
         return true;
