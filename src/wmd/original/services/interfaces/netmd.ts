@@ -137,7 +137,7 @@ export interface Disc {
 
 export interface MinidiscSpec {
     readonly availableFormats: RecordingCodec[];
-    readonly defaultFormat: Codec;
+    readonly defaultFormat: [number, number]; // [availableFormatsIndex, bitrateIndex]
     readonly specName: string;
     readonly measurementUnits: 'bytes' | 'frames';
     sanitizeHalfWidthTitle(title: string): string;
@@ -148,6 +148,21 @@ export interface MinidiscSpec {
     translateDefaultMeasuringModeTo(mode: Codec, defaultMeasuringModeDuration: number): number;
     // In bytes-measuring mode, this will translate duration in seconds to bytes.
     translateToDefaultMeasuringModeFrom(mode: Codec, defaultMeasuringModeDuration: number): number;
+}
+
+export function getCodecFromIndex(spec: MinidiscSpec, index: [number, number]): Codec {
+    return {
+        codec: spec.availableFormats[index[0]].codec,
+        bitrate: spec.availableFormats[index[0]].availableBitrates[index[1]],
+    };
+}
+
+export function getDefaultCodec(spec: MinidiscSpec): Codec {
+    return getCodecFromIndex(spec, spec.defaultFormat);
+}
+
+export function getDefaultCodecName(spec: MinidiscSpec): string {
+    return spec.availableFormats[spec.defaultFormat[0]].userFriendlyName ?? spec.availableFormats[spec.defaultFormat[0]].codec;
 }
 
 export type DeviceStatus = NetMDDeviceStatus & { canBeFlushed?: boolean };
@@ -163,7 +178,7 @@ export type TitleParameter = string | { title?: string; album?: string; artist?:
 
 export class DefaultMinidiscSpec implements MinidiscSpec {
     public readonly availableFormats: RecordingCodec[] = [{ codec: 'SPS', defaultBitrate: 292, userFriendlyName: 'SP', availableBitrates: [292] }, { codec: 'SPM', defaultBitrate: 146, userFriendlyName: 'MONO', availableBitrates: [146] }, { codec: 'AT3', defaultBitrate: 132, userFriendlyName: 'LP2', availableBitrates: [132] }, { codec: 'AT3', defaultBitrate: 66, userFriendlyName: 'LP4', availableBitrates: [66] }];
-    public readonly defaultFormat = { codec: 'SPS' as const, bitrate: 292 };
+    public readonly defaultFormat = [0, 0] as [number, number];
     public readonly specName = 'MD';
     public readonly measurementUnits = 'frames';
 

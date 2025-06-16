@@ -63,16 +63,8 @@ export class HiMDSpec implements MinidiscSpec {
           ]
         : [{ codec: 'MP3', availableBitrates: [320, 256, 192, 128, 96, 64], defaultBitrate: 192 }];
     public readonly measurementUnits = 'bytes';
-    public defaultFormat: Codec = this.unrestricted ? { codec: 'A3+', bitrate: 256 } : { codec: 'MP3', bitrate: 192 };
+    public defaultFormat = (this.unrestricted ? [0, 1] : [0, 2]) as [number, number];
     public specName: string;
-
-    public static derive(name: string, formats: RecordingCodec[], defaultFormat: Codec) {
-        const instance = new HiMDSpec(true);
-        instance.specName = name;
-        instance.defaultFormat = defaultFormat;
-        instance.availableFormats = formats;
-        return instance;
-    }
 
     getRemainingCharactersForTitles(disc: Disc): { halfWidth: number; fullWidth: number } {
         const ALL_CHARACTERS = 0x1000 * 14;
@@ -107,7 +99,7 @@ export class HiMDSpec implements MinidiscSpec {
     }
 
     translateToDefaultMeasuringModeFrom(codec: Codec, defaultMeasuringModeDuration: number): number {
-        const imprecise = defaultMeasuringModeDuration * codec.bitrate * 1024 / 8;
+        const imprecise = defaultMeasuringModeDuration /*in seconds*/ * codec.bitrate * 1024 / 8;
         let frameSize;
         switch(codec.codec) {
             case 'A3+':
