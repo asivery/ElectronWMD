@@ -2,7 +2,6 @@ dist
 node_modules
 build
 renderer
-webminidisc
 
 *.local
 EKBROOTS.DES

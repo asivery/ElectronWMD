@@ -1,0 +1,3 @@
+[submodule "webminidisc"]
+	path = webminidisc
+	url = https://github.com/asivery/webminidisc.git
