@@ -166,7 +166,7 @@ function setupEncoder() {
             const homeDir = app.getPath('home');
             tempDir = path.join(homeDir, 'Library','Caches','ElectronWMD');
         } else {
-            tempDir = fs.mkdtempSync('atracenc');
+            tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'atracenc'));
         }
 
         if (!fs.existsSync(tempDir)) {
