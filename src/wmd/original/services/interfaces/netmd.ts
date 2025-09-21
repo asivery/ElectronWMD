@@ -33,6 +33,7 @@ import {
     getRemainingCharactersForTitles,
     getCellsForTitle,
     readPatch,
+    formatToHiMD,
 } from 'netmd-js';
 import { makeGetAsyncPacketIteratorOnWorkerThread } from 'netmd-js/dist/web-encrypt-worker';
 import { Logger } from 'netmd-js/dist/logger';
@@ -74,6 +75,7 @@ export enum Capability {
     himdTitles,
     fullWidthSupport,
     nativeMonoUpload,
+    himdFormat,
 }
 
 export enum ExploitCapability {
@@ -177,7 +179,7 @@ export const WireformatDict: { [k: string]: Wireformat } = {
 export type TitleParameter = string | { title?: string; album?: string; artist?: string };
 
 export class DefaultMinidiscSpec implements MinidiscSpec {
-    public readonly availableFormats: RecordingCodec[] = [{ codec: 'SPS', defaultBitrate: 292, userFriendlyName: 'SP', availableBitrates: [292] }, { codec: 'SPM', defaultBitrate: 146, userFriendlyName: 'MONO', availableBitrates: [146] }, { codec: 'AT3', defaultBitrate: 132, userFriendlyName: 'LP2', availableBitrates: [132] }, { codec: 'AT3', defaultBitrate: 66, userFriendlyName: 'LP4', availableBitrates: [66] }];
+    public readonly availableFormats: RecordingCodec[] = [{ codec: 'SPS', defaultBitrate: 292, userFriendlyName: 'SP', availableBitrates: [292] }, { codec: 'SPM', defaultBitrate: 146, userFriendlyName: 'SP', availableBitrates: [146] }, { codec: 'AT3', defaultBitrate: 132, userFriendlyName: 'LP2', availableBitrates: [132] }, { codec: 'AT3', defaultBitrate: 66, userFriendlyName: 'LP4', availableBitrates: [66] }];
     public readonly defaultFormat = [0, 0] as [number, number];
     public readonly specName = 'MD';
     public readonly measurementUnits = 'frames';
@@ -258,6 +260,7 @@ export abstract class NetMDService {
     }
 
     async flush(): Promise<void> {}
+    async formatToHiMD(): Promise<void> {}
 }
 
 export interface NetMDFactoryService {
@@ -427,6 +430,10 @@ export class NetMDUSBService extends NetMDService {
         ) {
             // Only Sony (and Aiwa since it's the same thing) portables have the factory mode.
             basic.push(Capability.factoryMode);
+        }
+        if(deviceName?.includes("MZ-RH") || deviceName?.includes("MZ-NH") || deviceName?.includes("CMT-AH10")) {
+            // Is HiMD -> Can be formatted to HiMD
+            basic.push(Capability.himdFormat);
         }
 
         const deviceFlags = this.netmdInterface?.netMd.getDeviceFlags();
@@ -641,6 +648,12 @@ export class NetMDUSBService extends NetMDService {
             await this.netmdInterface!.stop();
         } catch (ex) { /* empty */ }
         await this.netmdInterface!.eraseDisc();
+        this.dropCachedContentList();
+    }
+
+    @asyncMutex
+    async formatToHiMD(): Promise<void> {
+        await formatToHiMD(this.netmdInterface!);
         this.dropCachedContentList();
     }
 

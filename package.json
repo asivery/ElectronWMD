@@ -46,7 +46,7 @@
     "jsbi": "^3.2.5",
     "msgpackr": "^1.11.2",
     "netmd-exploits": "^0.5.10",
-    "netmd-js": "^4.2.0",
+    "netmd-js": "^4.3.0",
     "netmd-tocmanip": "^0.1.5",
     "networkwm-js": "^0.1.2",
     "node-fetch": "^2.6.7",
