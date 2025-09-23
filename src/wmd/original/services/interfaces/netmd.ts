@@ -98,6 +98,7 @@ export interface RecordingCodec {
     defaultBitrate: number;
     availableBitrates: number[];
     userFriendlyName?: string;
+    displayBadgeFriendlyName?: string;
 }
 
 export interface Codec {
@@ -179,7 +180,7 @@ export const WireformatDict: { [k: string]: Wireformat } = {
 export type TitleParameter = string | { title?: string; album?: string; artist?: string };
 
 export class DefaultMinidiscSpec implements MinidiscSpec {
-    public readonly availableFormats: RecordingCodec[] = [{ codec: 'SPS', defaultBitrate: 292, userFriendlyName: 'SP', availableBitrates: [292] }, { codec: 'SPM', defaultBitrate: 146, userFriendlyName: 'SP', availableBitrates: [146] }, { codec: 'AT3', defaultBitrate: 132, userFriendlyName: 'LP2', availableBitrates: [132] }, { codec: 'AT3', defaultBitrate: 66, userFriendlyName: 'LP4', availableBitrates: [66] }];
+    public readonly availableFormats: RecordingCodec[] = [{ codec: 'SPS', defaultBitrate: 292, userFriendlyName: 'SP', availableBitrates: [292] }, { codec: 'SPM', defaultBitrate: 146, userFriendlyName: 'MONO', availableBitrates: [146], displayBadgeFriendlyName: 'SP' }, { codec: 'AT3', defaultBitrate: 132, userFriendlyName: 'LP2', availableBitrates: [132] }, { codec: 'AT3', defaultBitrate: 66, userFriendlyName: 'LP4', availableBitrates: [66] }];
     public readonly defaultFormat = [0, 0] as [number, number];
     public readonly specName = 'MD';
     public readonly measurementUnits = 'frames';
