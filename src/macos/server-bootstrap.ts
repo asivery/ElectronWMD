@@ -5,14 +5,14 @@ import { Socket } from 'net';
 import { PackrStream, UnpackrStream } from 'msgpackr';
 import fs from 'fs';
 
+const TEMPDIR = process.env['TMPDIR'];
+
 export function getSocketName(){
-    return pathJoin(process.env['TMPDIR'] || '/tmp/', 'ewmd-intermediary.sock');
+    return pathJoin(TEMPDIR, 'ewmd-intermediary.sock');
 }
 
 export function startServer(){
-    const temp = process.env['TMPDIR'] || '/tmp/';
-    
-    const socketName = pathJoin(temp, 'ewmd-intermediary.sock');
+    const socketName = getSocketName();
     const canFail = (func: () => void) => {
         try{ func() } catch(_){}
     }
@@ -23,7 +23,7 @@ export function startServer(){
     if(!fs.existsSync(serverPath)) {
         serverPath = pathJoin(app.getAppPath(), "macos", "server.js");
     }
-    let envs = `ELECTRON_RUN_AS_NODE=1 TMPDIR="${temp}"`;
+    let envs = `ELECTRON_RUN_AS_NODE=1 EWWORKDIR="${TEMPDIR}"`;
     if(process.env.EWMD_HIMD_BYPASS_COHERENCY_CHECK) {
         envs += ` EWMD_HIMD_BYPASS_COHERENCY_CHECK=${process.env.EWMD_HIMD_BYPASS_COHERENCY_CHECK}`;
     }

@@ -6,7 +6,7 @@ import path from 'path';
 import { NetworkWMService } from '../wmd/networkwm-service';
 import { WebUSBInterop } from '../wusb-interop';
 
-const temp = process.env['TMPDIR'] || '/tmp/';
+const temp = process.env['EWWORKDIR'];
 
 const socketName = path.join(temp, 'ewmd-intermediary.sock');
 const pidFile = path.join(temp, 'ewmd-intermediary.pid');
