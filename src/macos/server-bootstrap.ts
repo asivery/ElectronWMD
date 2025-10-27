@@ -4,11 +4,13 @@ import { app } from 'electron';
 import { Socket } from 'net';
 import { PackrStream, UnpackrStream } from 'msgpackr';
 import fs from 'fs';
+import { getSocketPath, getSocketDir } from './socket-path';
 
-const TEMPDIR = process.env['TMPDIR'];
+// Choose a deterministic, short base directory for the socket.
+const BASEDIR = getSocketDir(process.env['TMPDIR'] || '/tmp');
 
 export function getSocketName(){
-    return pathJoin(TEMPDIR, 'ewmd-intermediary.sock');
+    return getSocketPath(BASEDIR);
 }
 
 export function startServer(){
@@ -23,14 +25,19 @@ export function startServer(){
     if(!fs.existsSync(serverPath)) {
         serverPath = pathJoin(app.getAppPath(), "macos", "server.js");
     }
-    let envs = `ELECTRON_RUN_AS_NODE=1 EWWORKDIR="${TEMPDIR}"`;
+    // Prepare environment for the privileged server; preserve across sudo with -E
+    let envs = `ELECTRON_RUN_AS_NODE=1`;
+    envs += ` EWWORKDIR="${BASEDIR}"`;
+    envs += ` ORIGINAL_UID=${process.getuid?.() ?? ''}`;
+    envs += ` ORIGINAL_GID=${process.getgid?.() ?? ''}`;
     if(process.env.EWMD_HIMD_BYPASS_COHERENCY_CHECK) {
         envs += ` EWMD_HIMD_BYPASS_COHERENCY_CHECK=${process.env.EWMD_HIMD_BYPASS_COHERENCY_CHECK}`;
     }
     // Many people know part of the famous quote: "Think different...", but not many know the whole thing:
     // "Think different... Think of all the different ways we can take something simple and fuck it up"
-    const fullCommand = `${envs} "${executablePath}" "${serverPath}" "${app.getPath('userData')}"`;
-    const osa = `tell application "Terminal" \n activate \n do script "echo ${btoa(fullCommand)} | base64 -d | sudo zsh"\nend tell`;
+    // Export critical env vars before invoking sudo; -E preserves them across the boundary
+    const fullCommand = `export EWWORKDIR="${BASEDIR}" ORIGINAL_UID=${process.getuid?.() ?? ''} ORIGINAL_GID=${process.getgid?.() ?? ''}; ${envs} "${executablePath}" "${serverPath}" "${app.getPath('userData')}"`;
+    const osa = `tell application "Terminal" \n activate \n do script "echo ${btoa(fullCommand)} | base64 -d | sudo -E zsh"\nend tell`;
     
     spawn('/usr/bin/osascript', ['-e', osa]);
 }
