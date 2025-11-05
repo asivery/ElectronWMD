@@ -173,6 +173,7 @@ export class NetworkWMService extends NetMDService {
     session: UMSCNWJSSession | null = null;
 
     async prepareUpload() {
+        if(this.database.deviceInfo.disableDRM) return;
         if(this.session) throw new Error("Invalid state!");
         const filesystem = this.database.database.filesystem as UMSCHiMDFilesystem;
         this.session = new UMSCNWJSSession(filesystem.driver as SonyVendorNWJSUSMCDriver, filesystem);
@@ -180,7 +181,8 @@ export class NetworkWMService extends NetMDService {
     }
 
     async finalizeUpload() {
-        await this.session.finalizeSession();
+        if(this.session != null)
+            await this.session.finalizeSession();
         await this.database.flushUpdates();
         this.session = null;
     }

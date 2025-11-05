@@ -48,7 +48,7 @@
     "netmd-exploits": "^0.5.10",
     "netmd-js": "^4.3.0",
     "netmd-tocmanip": "^0.1.5",
-    "networkwm-js": "^0.1.2",
+    "networkwm-js": "^0.2.0",
     "node-fetch": "^2.6.7",
     "nufatfs": "^0.1.10",
     "typescript": "^4.3.5",
