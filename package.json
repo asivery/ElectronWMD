@@ -1,6 +1,6 @@
 {
   "name": "electronwmd",
-  "version": "0.5.1-1.5.2",
+  "version": "0.5.2-1.5.3",
   "description": "Electron version of WebMinidisc Pro",
   "main": "dist/main.js",
   "scripts": {
@@ -45,7 +45,7 @@
     "jconv": "^0.1.5",
     "jsbi": "^3.2.5",
     "msgpackr": "^1.11.2",
-    "netmd-exploits": "^0.5.10",
+    "netmd-exploits": "^0.5.11",
     "netmd-js": "^4.3.0",
     "netmd-tocmanip": "^0.1.5",
     "networkwm-js": "^0.2.0",
