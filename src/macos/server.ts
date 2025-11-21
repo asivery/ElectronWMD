@@ -5,11 +5,11 @@ import { PackrStream, UnpackrStream } from 'msgpackr';
 import path from 'path';
 import { NetworkWMService } from '../wmd/networkwm-service';
 import { WebUSBInterop } from '../wusb-interop';
+import { getPidPath, getSocketDir, getSocketPath } from './socket-path';
 
-const temp = process.env['EWWORKDIR'];
-
-const socketName = path.join(temp, 'ewmd-intermediary.sock');
-const pidFile = path.join(temp, 'ewmd-intermediary.pid');
+const socketName = getSocketPath();
+const pidFile = getPidPath();
+const workDir = getSocketDir();
 const canFail = (func: () => void) => {
     try{ func() } catch(_){}
 }
@@ -22,6 +22,9 @@ function closeAll(){
 function main() {
     console.log("ElectronWMD's MacOS SCSI intermediate server by asivery");
     console.log("Starting up...");
+    console.log(`Base dir: ${workDir}`);
+    console.log(`Socket path: ${socketName}`);
+    console.log(`PID file: ${pidFile}`);
     if(fs.existsSync(pidFile)) {
         const oldPid = parseInt(fs.readFileSync(pidFile).toString());
         canFail(() => process.kill(oldPid, 'SIGTERM'));
@@ -43,8 +46,27 @@ function main() {
     canFail(() => fs.unlinkSync(socketName));
 
     const server = createServer();
-    server.listen(socketName);
-    fs.chmodSync(socketName, '777');
+    server.on('error', (err) => {
+        console.error('Server error:', err);
+        closeAll();
+    });
+    server.listen(socketName, () => {
+        console.log(`Server listening on socket: ${socketName}`);
+        try {
+            const originalUid = isFinite(process.env.ORIGINAL_UID as any) ? parseInt(process.env.ORIGINAL_UID) : null;
+            const originalGid = isFinite(process.env.ORIGINAL_GID as any) ? parseInt(process.env.ORIGINAL_GID) : null;
+            if (originalUid !== null && originalGid !== null) {
+                try { fs.chownSync(socketName, originalUid, originalGid); } catch (_) {}
+                try { fs.chmodSync(socketName, 0o600); } catch (_) {}
+                console.log(`Socket ownership set to ${originalUid}:${originalGid ?? 0} and mode 0600`);
+            } else {
+                fs.chmodSync(socketName, 0o777);
+                console.log('Socket permissions set to 0777 (fallback)');
+            }
+        } catch (err) {
+            console.error('Failed setting socket ownership/permissions:', err);
+        }
+    });
     server.on("close", closeAll);
     server.on('connection', (socket) => {
         console.log("Connection established.");
