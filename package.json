@@ -5,8 +5,6 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "./build-renderer.sh && ./run-fixes.sh && tsc",
-    "test-socket": "npm run build && node scripts/test-socket-path.js",
-    "itest-server": "npm run build && node scripts/itest-server.js",
     "start": "npm run build && NODE_ENV=development electron ./dist/main.js",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder -wl --x64 && electron-builder -w --ia32",

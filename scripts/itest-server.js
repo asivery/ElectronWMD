@@ -1,28 +1,19 @@
 /* macOS-only integration test: spawn the server with EWWORKDIR under /tmp, wait for socket, connect, then exit */
-const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const net = require('net');
-const { spawn } = require('child_process');
 
 const socketPathModule = require('../dist/macos/socket-path.js');
+const bootstrap = require('../dist/macos/server-bootstrap.js');
+const assert = require('assert');
 
-function mkTmpUnderTmp(prefix) {
-  const base = '/tmp';
-  const full = fs.mkdtempSync(path.join(base, prefix));
-  return full;
-}
-
-async function waitForSocket(sockPath, timeoutMs = 10000) {
+async function waitForSocket(sockPath, timeoutMs = 100000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
       const st = fs.statSync(sockPath);
       if (typeof st.mode === 'number') {
-        // On macOS, isSocket() exists
         if (typeof st.isSocket === 'function' && st.isSocket()) return;
-        // Fallback: assume exists and try connecting instead
       }
     } catch (_) {}
     await new Promise(r => setTimeout(r, 100));
@@ -30,8 +21,8 @@ async function waitForSocket(sockPath, timeoutMs = 10000) {
   throw new Error('Socket did not appear in time: ' + sockPath);
 }
 
-async function tryConnect(sockPath, timeoutMs = 3000) {
-  await new Promise((resolve, reject) => {
+function tryConnect(sockPath, timeoutMs = 3000) {
+  return new Promise((resolve, reject) => {
     const s = net.createConnection(sockPath, () => {
       // Connected; immediately destroy to trigger server close
       s.destroy();
@@ -57,47 +48,39 @@ async function run() {
     return;
   }
 
-  // Ensure build artifacts exist
-  const electronBin = path.resolve(__dirname, '..', 'node_modules', '.bin', 'electron');
-  const serverJs = path.resolve(__dirname, '..', 'dist', 'macos', 'server.js');
-  assert(fs.existsSync(electronBin), 'electron binary not found at ' + electronBin);
-  assert(fs.existsSync(serverJs), 'server.js not found at ' + serverJs);
-
-  const workDir = mkTmpUnderTmp('ewmd-itest-');
+  const workDir = fs.mkdtempSync(path.join('/tmp', 'ewmd-itest-'));
   const expectedSocket = socketPathModule.getSocketPath(workDir);
+  const expectedPid = socketPathModule.getPidPath(workDir);
 
   // Clean any stale files
   try { fs.unlinkSync(expectedSocket); } catch (_) {}
-  const expectedPid = socketPathModule.getPidPath(workDir);
   try { fs.unlinkSync(expectedPid); } catch (_) {}
 
-  // Launch server under ELECTRON_RUN_AS_NODE
-  const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', EWWORKDIR: workDir };
-  const child = spawn(electronBin, [serverJs, workDir], {
-    env,
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-
-  let stdout = '';
-  let stderr = '';
-  child.stdout.on('data', d => { stdout += d.toString(); });
-  child.stderr.on('data', d => { stderr += d.toString(); });
+  // Launch server
+  const child = bootstrap.startOutsideElectron(
+    path.resolve(__dirname, '..', 'node_modules', '.bin', 'electron'),
+    path.resolve(__dirname, '..'),
+    '/tmp/',
+    workDir,
+  );
 
   // Wait for socket to appear
   await waitForSocket(expectedSocket, 10000);
 
   // Try connecting to it
+  const serverPid = parseInt(fs.readFileSync(expectedPid));
   await tryConnect(expectedSocket);
 
-  // Ask server to terminate cleanly now that we validated the socket
-  child.kill('SIGTERM');
-  await new Promise((resolve, reject) => {
-    const to = setTimeout(() => reject(new Error('server did not exit in time')), 5000);
-    child.on('exit', (_code, _signal) => {
-      clearTimeout(to);
-      resolve();
-    });
-  });
+  await new Promise(res => setTimeout(res, 5000));
+  try {
+    process.kill(serverPid, 0);
+    // The process is alive
+    throw new Error('server did not exit in time');
+  } catch(_ex) {
+    assert(!fs.existsSync(expectedSocket));
+    assert(!fs.existsSync(expectedPid));
+    fs.rmdirSync(workDir);
+  }
 
   console.log('integration test passed');
 }

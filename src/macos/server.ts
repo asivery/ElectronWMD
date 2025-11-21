@@ -5,12 +5,11 @@ import { PackrStream, UnpackrStream } from 'msgpackr';
 import path from 'path';
 import { NetworkWMService } from '../wmd/networkwm-service';
 import { WebUSBInterop } from '../wusb-interop';
-import { getSocketPath, getPidPath, getSocketDir } from './socket-path';
+import { getPidPath, getSocketDir, getSocketPath } from './socket-path';
 
-const baseDir = getSocketDir(process.env['EWWORKDIR'] || process.env['TMPDIR'] || '/tmp');
-
-const socketName = getSocketPath(baseDir);
-const pidFile = getPidPath(baseDir);
+const socketName = getSocketPath();
+const pidFile = getPidPath();
+const workDir = getSocketDir();
 const canFail = (func: () => void) => {
     try{ func() } catch(_){}
 }
@@ -23,7 +22,7 @@ function closeAll(){
 function main() {
     console.log("ElectronWMD's MacOS SCSI intermediate server by asivery");
     console.log("Starting up...");
-    console.log(`Base dir: ${baseDir}`);
+    console.log(`Base dir: ${workDir}`);
     console.log(`Socket path: ${socketName}`);
     console.log(`PID file: ${pidFile}`);
     if(fs.existsSync(pidFile)) {
@@ -54,10 +53,10 @@ function main() {
     server.listen(socketName, () => {
         console.log(`Server listening on socket: ${socketName}`);
         try {
-            const originalUid = process.env.ORIGINAL_UID ? parseInt(process.env.ORIGINAL_UID, 10) : undefined;
-            const originalGid = process.env.ORIGINAL_GID ? parseInt(process.env.ORIGINAL_GID, 10) : undefined;
-            if (!Number.isNaN(originalUid as any) && originalUid !== undefined) {
-                try { fs.chownSync(socketName, originalUid, Number.isNaN(originalGid as any) ? 0 : (originalGid ?? 0)); } catch (_) {}
+            const originalUid = isFinite(process.env.ORIGINAL_UID as any) ? parseInt(process.env.ORIGINAL_UID) : null;
+            const originalGid = isFinite(process.env.ORIGINAL_GID as any) ? parseInt(process.env.ORIGINAL_GID) : null;
+            if (originalUid !== null && originalGid !== null) {
+                try { fs.chownSync(socketName, originalUid, originalGid); } catch (_) {}
                 try { fs.chmodSync(socketName, 0o600); } catch (_) {}
                 console.log(`Socket ownership set to ${originalUid}:${originalGid ?? 0} and mode 0600`);
             } else {
