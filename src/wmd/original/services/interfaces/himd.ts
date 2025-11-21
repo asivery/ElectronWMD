@@ -164,7 +164,7 @@ export class HiMDRestrictedService extends NetMDService {
         };
     }
     getWorker(): any[]{
-        return [new Worker(new URL(WorkerURL, ""), { type: 'classic' }), makeAsyncWorker, makeAsyncCryptoBlockProvider];
+        return [new Worker(new URL(WorkerURL, window.location.href), { type: 'classic' }), makeAsyncWorker, makeAsyncCryptoBlockProvider];
     }
 
     async getDeviceStatus(): Promise<DeviceStatus> {
@@ -339,7 +339,7 @@ export class HiMDRestrictedService extends NetMDService {
     async download(
         index: number,
         progressCallback: (progress: { read: number; total: number }) => void
-    ): Promise<{ format: DiscFormat; data: Uint8Array } | null> {
+    ): Promise<{ extension: string; data: Uint8Array } | null> {
         const trackNumber = this.himd!.trackIndexToTrackSlot(index);
         const [w, creator, _] = this.getWorker();
         const webWorker = await creator(w);
@@ -351,7 +351,7 @@ export class HiMDRestrictedService extends NetMDService {
         }
         webWorker.close();
         w.terminate();
-        return { format: DiscFormat.spStereo, data: concatUint8Arrays(...blocks) };
+        return { extension: info.format.toLowerCase(), data: concatUint8Arrays(...blocks) };
     }
 
     async getServiceCapabilities() {

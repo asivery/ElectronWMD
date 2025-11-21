@@ -297,7 +297,7 @@ export class NetworkWMService extends NetMDService {
         return Promise.resolve();
     }
 
-    async download(index: number, progressCallback: (progress: { read: number; total: number; }) => void): Promise<{ format: DiscFormat; data: Uint8Array; }> {
+    async download(index: number, progressCallback: (progress: { read: number; total: number; }) => void): Promise<{ extension: string; data: Uint8Array; }> {
         // NW files are stored with known decryption keys.
         // Simply invoke FS functions to read the file back...
         if(!this.cache) await this.listContent();
@@ -309,11 +309,17 @@ export class NetworkWMService extends NetMDService {
             progressCallback({ read: cursor, total: buffer.length });
         }
         // Unless MP3s are being processed
+        let extension;
         if(this.cache.nwjsTracks![index].codecName === "MP3") {
             // MP3s need to be decrypted
             buffer = decryptMP3(buffer, this.cache.nwjsTracks![index].systemIndex, this.database.mp3DeviceKey!);
+            extension = "mp3";
+        } else if(this.cache.nwjsTracks![index].codecName === "PCM") {
+            extension = "wav";
+        } else {
+            extension = "oma";
         }
-        return { format: DiscFormat.spStereo, data: buffer };
+        return { extension, data: buffer };
     }
 
     virtualGroupError = () => {

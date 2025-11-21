@@ -245,7 +245,7 @@ export abstract class NetMDService {
     abstract download(
         index: number,
         progressCallback: (progress: { read: number; total: number }) => void
-    ): Promise<{ format: DiscFormat; data: Uint8Array } | null>;
+    ): Promise<{ extension: string; data: Uint8Array } | null>;
     abstract play(): Promise<void>;
     abstract pause(): Promise<void>;
     abstract stop(): Promise<void>;
@@ -262,6 +262,8 @@ export abstract class NetMDService {
 
     async flush(): Promise<void> {}
     async formatToHiMD(): Promise<void> {}
+    // Required in HiMD api:
+    async fetchPartOfTrack(index: number, startSeconds: number, lengthSeconds: number): Promise<Uint8Array | null> { return null; }
 }
 
 export interface NetMDFactoryService {
@@ -285,7 +287,7 @@ export interface NetMDFactoryService {
         nerawDownload: boolean,
         callback: (data: { read: number; total: number; action: 'READ' | 'SEEK' | 'CHUNK'; sector?: string }) => void,
         config?: AtracRecoveryConfig
-    ): Promise<Uint8Array>;
+    ): Promise<{ data: Uint8Array, extension: string }>;
     finalizeDownload(): Promise<void>;
 
     setSPSpeedupActive(newState: boolean): Promise<void>;
@@ -761,7 +763,8 @@ export class NetMDUSBService extends NetMDService {
         const [format, data] = await upload(this.netmdInterface!, index, ({ readBytes, totalBytes }) => {
             progressCallback({ read: readBytes, total: totalBytes });
         });
-        return { format, data };
+        const extension = format === DiscFormat.spMono || format === DiscFormat.spStereo ? 'aea' : 'wav';
+        return { extension, data };
     }
 
     @asyncMutex
@@ -930,11 +933,14 @@ class NetMDFactoryUSBService implements NetMDFactoryService {
         config?: AtracRecoveryConfig
     ) {
         if (nerawDownload) {
-            return this.atracDownloader!.downloadTrackWithMarkers(track, callback, {
-                ...config,
-                includeMetadataSection: true,
-                removeLPBytes: 'never',
-            });
+            return {
+                data: await this.atracDownloader!.downloadTrackWithMarkers(track, callback, {
+                    ...config,
+                    includeMetadataSection: true,
+                    removeLPBytes: 'never',
+                }),
+                extension: 'neraw',
+            };
         } else {
             return this.atracDownloader!.downloadTrack(track, callback, config);
         }
