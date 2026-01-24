@@ -1,6 +1,7 @@
 import { DeviceStatus, DiscFormat, TrackFlag } from "netmd-js";
 import { Capability, Codec, Disc, Group, MinidiscSpec, NetMDService, RecordingCodec, TitleParameter, Track } from "./original/services/interfaces/netmd";
-import { SonyVendorNWJSUSMCDriver, UMSCNWJSSession, createNWJSFS, importKeys, initCrypto, resolvePathFromGlobalIndex, TrackMetadata, DeviceIds, DeviceDefinition, decryptMP3 } from 'networkwm-js';
+import { SonyVendorNWJSUSMCDriver, UMSCNWJSSession, importKeys, initCrypto, resolvePathFromGlobalIndex, TrackMetadata, DeviceIds, DeviceDefinition, decryptMP3 } from 'networkwm-js';
+import { createNWJSFS } from 'networkwm-js/dist/node-helpers';
 import { HiMDKBPSToFrameSize, UMSCHiMDFilesystem, generateCodecInfo } from "himd-js";
 import { AbstractedTrack, DatabaseAbstraction } from "networkwm-js/dist/database-abstraction";
 import { unmountAll } from "../unmount-drives";
@@ -297,7 +298,7 @@ export class NetworkWMService extends NetMDService {
         return Promise.resolve();
     }
 
-    async download(index: number, progressCallback: (progress: { read: number; total: number; }) => void): Promise<{ extension: string; data: Uint8Array; }> {
+    async download(index: number, progressCallback: (progress: { read: number; total: number; }) => void): Promise<{ extension: string; data: Uint8Array<ArrayBuffer>; }> {
         // NW files are stored with known decryption keys.
         // Simply invoke FS functions to read the file back...
         if(!this.cache) await this.listContent();
