@@ -1,6 +1,6 @@
 {
   "name": "electronwmd",
-  "version": "0.5.2-1.5.3",
+  "version": "0.5.2-1.5.4",
   "description": "Electron version of WebMinidisc Pro",
   "main": "dist/main.js",
   "scripts": {
