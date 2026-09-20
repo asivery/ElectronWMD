@@ -46,9 +46,9 @@
     "jsbi": "^3.2.5",
     "msgpackr": "^1.11.2",
     "netmd-exploits": "^0.5.12",
-    "netmd-js": "^4.3.0",
-    "netmd-tocmanip": "^0.1.5",
-    "networkwm-js": "^0.2.3",
+    "netmd-js": "^4.4.1",
+    "netmd-tocmanip": "^0.2.1",
+    "networkwm-js": "^0.2.6",
     "node-fetch": "^2.6.7",
     "nufatfs": "^0.1.10",
     "usb": "^2.13.0"
@@ -57,8 +57,8 @@
     "@types/electron-prompt": "^1.6.5",
     "@types/node": "^18.11.9",
     "@types/node-fetch": "^2.6.2",
-    "electron": "^31.2.1",
-    "electron-builder": "^24.13.3",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
     "prettier": "^2.7.1",
     "typescript": "^5.9.3"
   },

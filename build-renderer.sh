@@ -5,7 +5,7 @@ if [ -d "renderer" ]; then
 fi
 
 cd webminidisc
-npm i
-PUBLIC_URL="sandbox://" npm run build; rm -rf ../renderer; cp -rv dist ../renderer
+npm i --allow-git=root
+PUBLIC_URL="sandbox://app/" npm run build; rm -rf ../renderer; cp -rv dist ../renderer
 cd ..
 

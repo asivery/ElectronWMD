@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, protocol, dialog, FileFilter } from 'electron';
+import { net, app, BrowserWindow, ipcMain, protocol, dialog, FileFilter } from 'electron';
 import { importKeys } from 'networkwm-js';
 import path from 'path';
 import os from 'os';
@@ -212,7 +212,7 @@ async function createWindow() {
 
     await integrate(window);
     window.setMenuBarVisibility(false);
-    await window.loadURL('file://' + getOfRenderer('index.html')); //Can't use the `sandbox://` protocol - index.html would (incorrectly) redirect to https
+    await window.loadURL('sandbox://app/index.html');
     window.setTitle('Electron WMD');
 
     const store = new Store();
@@ -497,16 +497,26 @@ async function integrate(window: BrowserWindow) {
 contextMenu({
     showInspectElement: false,
 });
-
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'sandbox',
+    privileges: {
+      standard: true,
+      secure: true,
+      corsEnabled: true,
+      supportFetchAPI: false
+    }
+  }
+]);
 app.whenReady().then(() => {
-    protocol.registerFileProtocol('sandbox', (rq, callback) => {
-        const filePath = path.normalize(rq.url.substring('sandbox://'.length));
+    protocol.handle('sandbox', (rq) => {
+        const filePath = path.normalize(rq.url.substring('sandbox://app/'.length));
         if (path.isAbsolute(filePath) || filePath.includes('..')) {
             app.quit();
         }
         const tgt = decodeURI(getOfRenderer(filePath));
         console.log(`[SANDBOX]: Requested ${tgt}`);
-        callback(tgt);
+        return net.fetch(`file://${tgt}`);
     });
     createWindow();
 });
