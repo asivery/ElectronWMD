@@ -5,3 +5,7 @@ renderer
 
 *.local
 EKBROOTS.DES
+
+**/node_modules
+**/dist
+**/*.wme

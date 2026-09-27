@@ -1,0 +1,8 @@
+{
+    "encoderId": "ewmd-local-encoder",
+    "userFriendlyName": "Local ATRAC encoder",
+    "description": "A local copy of the high-quality Sony encoder.",
+    "version": "0.1.0",
+    "encoderDependencies": [],
+    "apiVersion": "1"
+}

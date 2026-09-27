@@ -6,6 +6,20 @@ fi
 
 cd webminidisc
 npm i --allow-git=root
-PUBLIC_URL="sandbox://app/" npm run build; rm -rf ../renderer; cp -rv dist ../renderer
+PUBLIC_URL="sandbox://app/" npm run build
+
+function build_encoder() {
+    E="$(pwd)"
+    cd "../encoders/$1"
+    npm run package
+    cp *.wme "$E/dist/encoders/"
+    cd "$E"
+}
+
+build_encoder local
+npm run postbuild-finalize-encoders
+
+rm -rf ../renderer
+cp -rv dist ../renderer
 cd ..
 

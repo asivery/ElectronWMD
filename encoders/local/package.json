@@ -1,0 +1,15 @@
+{
+  "name": "ewmd-local-encoder",
+  "version": "1.0.0",
+  "description": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc",
+    "package": "OPWD=\"$(pwd)\" && npm run build && cd ../../webminidisc && npm run build-sar-packager && npm run package-external-encoder -- \"$OPWD\" ewmd-local-encoder.wme"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}

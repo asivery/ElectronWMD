@@ -158,7 +158,7 @@ function setupEncoder() {
         });
     }
 
-    ipcMain.handle("invokeLocalEncoder", async (_, ffmpegPath: string, encoderPath: string, data: ArrayBuffer, sourceFilename: string, parameters: { format: Codec, enableReplayGain?: boolean }) => {
+    ipcMain.handle("invokeLocalEncoder", async (_, encoderPath: string, data: ArrayBuffer, sourceFilename: string, parameters: { format: Codec, enableReplayGain?: boolean }) => {
         // Pipeline:
         // inFile.ANY ==(ffmpeg)==> inFile.wav ==(encoder)==> outFile.wav
         let tempDir = '';
@@ -174,24 +174,15 @@ function setupEncoder() {
         }
         const inFilePath = path.join(tempDir, sourceFilename);
         fs.writeFileSync(inFilePath, new Uint8Array(data));
-        const intermediateFilePath = path.join(tempDir, "intermediate.wav");
-        const ffmpegArgs = ['-i', inFilePath];
-        if(parameters.enableReplayGain){
-            ffmpegArgs.push('-af', 'volume=replaygain=track');
-        }
-        ffmpegArgs.push('-ac', '2', '-ar', '44100', '-f', 'wav', intermediateFilePath);
-        console.log(`Executing ffmpeg. ARGS: ${ffmpegArgs}`);
-        await invoke(ffmpegPath, ffmpegArgs);
 
         const outFilePath = path.join(tempDir, "output.wav");
         const bitrateString = (parameters.format.bitrate! + '');
-        const allArgs = ['-e', '-br', bitrateString, intermediateFilePath, outFilePath];
+        const allArgs = ['-e', '-br', bitrateString, inFilePath, outFilePath];
         console.log(`Executing encoder EXE: ${encoderPath}. ARGS: ${allArgs}`);
         await invoke(encoderPath, allArgs);
         const rawData = new Uint8Array(fs.readFileSync(outFilePath)).buffer;
         fs.unlinkSync(outFilePath);
         fs.unlinkSync(inFilePath);
-        fs.unlinkSync(intermediateFilePath);
         fs.rmdirSync(tempDir);
         return rawData;
     });
@@ -504,7 +495,7 @@ protocol.registerSchemesAsPrivileged([
       standard: true,
       secure: true,
       corsEnabled: true,
-      supportFetchAPI: false
+      supportFetchAPI: true
     }
   }
 ]);
