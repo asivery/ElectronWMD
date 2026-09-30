@@ -5,7 +5,7 @@ if [ -d "renderer" ]; then
 fi
 
 cd webminidisc
-npm i --allow-git=root
+npm i --allow-git=all
 PUBLIC_URL="sandbox://app/" npm run build
 
 function build_encoder() {

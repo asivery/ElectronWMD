@@ -15,6 +15,7 @@ jobs:
           - os: ubuntu-latest
             script: dist
           - os: macos-latest
+            script: dist-mac
 
     steps:
       - name: Checkout
