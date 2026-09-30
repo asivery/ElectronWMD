@@ -207,6 +207,7 @@ ipcMain.handle('app:getVersion', () => app.getVersion());
 
 async function createWindow() {
     const window = new BrowserWindow({
+        title: 'ElectronWMD',
         width: 1280,
         height: 900,
         icon: path.join(__dirname, '..', 'res', 'icon.png'),
@@ -215,6 +216,9 @@ async function createWindow() {
             preload: path.join(__dirname, 'preload.js'),
         },
     });
+
+    // Keep the native window title stable when the renderer updates its document title.
+    window.on('page-title-updated', (event) => event.preventDefault());
 
     // Keep existing permission behavior for device integration; restrict local fonts to our main page.
     window.webContents.session.setPermissionCheckHandler((contents, permission, origin, details) => {
@@ -232,7 +236,6 @@ async function createWindow() {
     await integrate(window);
     window.setMenuBarVisibility(false);
     await window.loadURL('sandbox://app/index.html');
-    window.setTitle(`ElectronWMD ${app.getVersion()}`);
 
     const store = new Store();
 

@@ -19,6 +19,8 @@ const tags = new Set([
     'pattern',
     'image',
     'use',
+    'filter',
+    'feGaussianBlur',
 ]);
 const attributes = new Set([
     'xmlns',
@@ -62,6 +64,9 @@ const attributes = new Set([
     'preserveAspectRatio',
     'href',
     'xlink:href',
+    'filter',
+    'filterUnits',
+    'stdDeviation',
 ]);
 export function validateLabelPdfRequest(value: unknown): LabelPdfRequest {
     const r = value as LabelPdfRequest;
@@ -83,17 +88,70 @@ export function validateLabelPdfRequest(value: unknown): LabelPdfRequest {
         const ids = new Set<string>();
         const imageIds = new Set<string>();
         const imageReferences: string[] = [];
+        const filterIds = new Set<string>();
+        const filterReferences: string[] = [];
         const walk = (el: any) => {
             if (++nodes > 400000 || !tags.has(el.localName) || el.namespaceURI !== 'http://www.w3.org/2000/svg')
                 throw new Error('Unsupported SVG element');
+            if (el.localName === 'filter') {
+                const children = Array.from(el.childNodes).filter((child: any) => child.nodeType === 1) as any[];
+                if (
+                    el.parentNode?.localName !== 'defs' ||
+                    children.length !== 1 ||
+                    children[0].localName !== 'feGaussianBlur' ||
+                    el.getAttribute('filterUnits') !== 'userSpaceOnUse' ||
+                    !/^[\w-]+$/.test(el.getAttribute('id') || '')
+                )
+                    throw new Error('Unsupported SVG filter');
+                for (const name of ['x', 'y', 'width', 'height']) {
+                    const value = el.getAttribute(name);
+                    const number = Number(value);
+                    if (
+                        value === null ||
+                        value.trim() === '' ||
+                        !Number.isFinite(number) ||
+                        Math.abs(number) > 10000 ||
+                        ((name === 'width' || name === 'height') && number <= 0)
+                    )
+                        throw new Error('Invalid SVG filter region');
+                }
+            }
+            if (el.localName === 'feGaussianBlur') {
+                const value = el.getAttribute('stdDeviation');
+                const number = Number(value);
+                if (
+                    el.parentNode?.localName !== 'filter' ||
+                    el.childNodes.length ||
+                    value === null ||
+                    value.trim() === '' ||
+                    !Number.isFinite(number) ||
+                    number < 0 ||
+                    number > 5
+                )
+                    throw new Error('Invalid SVG blur');
+            }
             for (let i = 0; i < el.attributes.length; i++) {
                 const a = el.attributes.item(i);
                 const v = a.value;
                 if (!attributes.has(a.name)) throw new Error('Unsupported SVG attribute');
+                if (el.localName === 'filter' && !['id', 'filterUnits', 'x', 'y', 'width', 'height'].includes(a.name))
+                    throw new Error('Unsupported SVG filter attribute');
+                if (el.localName === 'feGaussianBlur' && a.name !== 'stdDeviation') throw new Error('Unsupported SVG blur attribute');
+                if (
+                    (a.name === 'filterUnits' && el.localName !== 'filter') ||
+                    (a.name === 'stdDeviation' && el.localName !== 'feGaussianBlur')
+                )
+                    throw new Error('Misplaced SVG filter attribute');
+                if (a.name === 'filter') {
+                    if (!['g', 'path'].includes(el.localName) || !/^url\(#[\w-]+\)$/.test(v))
+                        throw new Error('Invalid SVG filter reference');
+                    filterReferences.push(v.slice(5, -1));
+                }
                 if (a.name === 'id') {
                     if (ids.has(v)) throw new Error('Duplicate SVG ID');
                     ids.add(v);
                     if (el.localName === 'image') imageIds.add(v);
+                    if (el.localName === 'filter') filterIds.add(v);
                 }
                 if (a.name === 'href' || a.name === 'xlink:href') {
                     if (el.localName === 'use') {
@@ -112,7 +170,8 @@ export function validateLabelPdfRequest(value: unknown): LabelPdfRequest {
             }
         };
         walk(doc.documentElement);
-        if (imageReferences.some(id => !imageIds.has(id))) throw new Error('SVG reuse must reference an embedded image');
+        if (imageReferences.some((id) => !imageIds.has(id))) throw new Error('SVG reuse must reference an embedded image');
+        if (filterReferences.some((id) => !filterIds.has(id))) throw new Error('SVG filter reference must target an internal blur filter');
         return new XMLSerializer().serializeToString(doc.documentElement);
     });
     return { pages, paperSize: { ...r.paperSize } };
