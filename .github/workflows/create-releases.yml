@@ -34,9 +34,6 @@ jobs:
           sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libudev-dev wine64 wine32:i386
-          wineboot --init
-        env:
-          WINEDEBUG: -all
 
       - name: Install dependencies
         run: npm ci
