@@ -15,8 +15,14 @@ import prompt from 'electron-prompt';
 import { EKBROOTS } from 'networkwm-js/dist/encryption';
 import { Mutex } from 'async-mutex';
 import { WebUSBInterop } from './wusb-interop';
+import { attachShutdownWindow, lifecycle, requestShutdown, shutdownLog } from './app-shutdown';
 
 const getOfRenderer = (...p: string[]) => path.join(__dirname, '..', 'renderer', ...p);
+
+// Modern Chromium requires custom schemes used by ES modules to opt into CORS.
+protocol.registerSchemesAsPrivileged([{ scheme: 'sandbox', privileges: {
+    standard: true, secure: true, supportFetchAPI: true, corsEnabled: true,
+} }]);
 
 async function ewmdOpenDialog(window: BrowserWindow, filters: FileFilter[], directory?: boolean){
     const res = await dialog.showOpenDialog(window, { filters, properties: [directory ? 'openDirectory' : 'openFile'] });
@@ -29,8 +35,7 @@ function reload(window: BrowserWindow){
     if (app.isPackaged && process.env.APPIMAGE) {
         dialog.showMessageBoxSync(window, { message: "This is an AppImage. Electron has a bug where AppImages cannot restart. Please restart the app manually" });
     }
-    app.relaunch();
-    app.exit();
+    if (!lifecycle.stopping) void requestShutdown('reload', !process.env.APPIMAGE);
 }
 
 app.commandLine.appendSwitch('ignore-certificate-errors');
@@ -158,7 +163,7 @@ function setupEncoder() {
         });
     }
 
-    ipcMain.handle("invokeLocalEncoder", async (_, ffmpegPath: string, encoderPath: string, data: ArrayBuffer, sourceFilename: string, parameters: { format: Codec, enableReplayGain?: boolean }) => {
+    handleDeviceIPC("invokeLocalEncoder", async (_, ffmpegPath: string, encoderPath: string, data: ArrayBuffer, sourceFilename: string, parameters: { format: Codec, enableReplayGain?: boolean }) => {
         // Pipeline:
         // inFile.ANY ==(ffmpeg)==> inFile.wav ==(encoder)==> outFile.wav
         let tempDir = '';
@@ -208,6 +213,7 @@ async function createWindow() {
         },
     });
 
+    attachShutdownWindow(window);
     console.log(app.getPath('exe'))
 
     await integrate(window);
@@ -240,19 +246,30 @@ function getDefinedFunctions(currentObj: any){
     const defined = new Set<string>();
     do{
         Object.getOwnPropertyNames(currentObj)
-        .filter((n) => typeof currentObj[n] == 'function' && !(n in defined))
+        .filter((n) => typeof currentObj[n] == 'function' && !defined.has(n) && n !== 'shutdown')
         .forEach(defined.add.bind(defined));
     } while ((currentObj = Object.getPrototypeOf(currentObj)));
     return defined;
 }
 
-function traverseObject(window: BrowserWindow, objectFactory: () => any, namespace: string) {
+function handleDeviceIPC(channel: string, listener: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => any) {
+    ipcMain.handle(channel, (event, ...args) => {
+        // Do not change the existing [result, error] protocol for service RPCs.
+        const tupleResult = /^_(netmd_|factory__|himd_|nwjs_)/.test(channel);
+        return lifecycle.run(channel, () => listener(event, ...args)).catch(error => {
+            if (tupleResult) return [null, error];
+            throw error;
+        });
+    });
+}
+
+function traverseObject(window: BrowserWindow, objectFactory: () => any, namespace: string, afterCall?: (name: string) => void) {
     let currentObj = objectFactory();
     const defined = getDefinedFunctions(currentObj);
     defined.forEach((n) => {
         const translatedName = namespace + n;
         console.log(`[INTEGRATE]: Registering handler ${translatedName}`);
-        ipcMain.handle(translatedName, async function (_, ...allArgs: any[]) {
+        handleDeviceIPC(translatedName, async function (_, ...allArgs: any[]) {
             for (let i = 0; i < allArgs.length; i++) {
                 if (allArgs[i]?.interprocessType === 'function') {
                     allArgs[i] = async (...args: any[]) =>
@@ -262,7 +279,9 @@ function traverseObject(window: BrowserWindow, objectFactory: () => any, namespa
                 }
             }
             try {
-                return [await objectFactory()[n](...allArgs), null];
+                const result = await objectFactory()[n](...allArgs);
+                afterCall?.(n);
+                return [result, null];
             } catch (err) {
                 console.log("Node Error: ");
                 console.log(err);
@@ -274,7 +293,7 @@ function traverseObject(window: BrowserWindow, objectFactory: () => any, namespa
 }
 
 async function integrate(window: BrowserWindow) {
-    const webusb = WebUSBInterop.create();
+    const webusb = WebUSBInterop.create(shutdownLog);
 
     Object.defineProperty(global, 'navigator', {
         writable: false,
@@ -290,6 +309,14 @@ async function integrate(window: BrowserWindow) {
     });
 
     const service = new EWMDNetMD({ debug: true });
+    // Registered before the event loop can admit an exit request.
+    lifecycle.add('netmd-factory', async () => {
+        if (factoryIface && factoryDownloadPrepared) {
+            await factoryIface.finalizeDownload();
+            factoryDownloadPrepared = false;
+        }
+    });
+    lifecycle.add('netmd', () => service.shutdown());
 
     let currentObj = service as any;
     console.log(currentObj);
@@ -299,11 +326,12 @@ async function integrate(window: BrowserWindow) {
 
     let alreadySwitched = false;
     let factoryIface: any = null;
+    let factoryDownloadPrepared = false;
     let factoryDefList: string[] = [];
 
     ipcMain.handle('reload', reload.bind(null, window));
 
-    ipcMain.handle('_switchToFactory', async () => {
+    handleDeviceIPC('_switchToFactory', async () => {
         factoryIface = await service.factory();
         if (alreadySwitched) return factoryDefList;
         alreadySwitched = true;
@@ -311,7 +339,11 @@ async function integrate(window: BrowserWindow) {
         factoryDefList = traverseObject(
             window,
             () => factoryIface,
-            "_factory__"
+            "_factory__",
+            name => {
+                if (name === 'prepareDownload') factoryDownloadPrepared = true;
+                if (name === 'finalizeDownload') factoryDownloadPrepared = false;
+            }
         );
 
 
@@ -321,7 +353,7 @@ async function integrate(window: BrowserWindow) {
         let handleBadSectorResolve: ((arg: "reload" | "abort" | "skip" | "yieldanyway") => void) | null = null
 
         ipcMain.removeHandler('_factory__exploitDownloadTrack');
-        ipcMain.handle('_factory__exploitDownloadTrack', async (_, ...allArgs: Parameters<NetMDFactoryService['exploitDownloadTrack']>) => {
+        handleDeviceIPC('_factory__exploitDownloadTrack', async (_, ...allArgs: Parameters<NetMDFactoryService['exploitDownloadTrack']>) => {
             handleBadSectorResolve = null;
             shouldAbortAtracDownload = false;
 
@@ -364,12 +396,15 @@ async function integrate(window: BrowserWindow) {
     const nwService = new NetworkWMService(keyData);
 
     if(process.platform !== 'darwin') {
+        lifecycle.add('himd', () => himdService.shutdown());
+        lifecycle.add('networkwm', () => nwService.shutdown());
         const himdDeflist = traverseObject(window, () => himdService, "_himd_");
         ipcMain.handle('_himd__definedParameters', () => himdDeflist);
         const nwDeflist = traverseObject(window, () => nwService, "_nwjs_");
         ipcMain.handle('_nwjs__definedParameters', () => nwDeflist);    
     } else {
         const connection = new Connection();
+        lifecycle.add('macos-helper', () => connection.shutdown());
         connection.deviceDisconnectedCallback = () => reload(window);
         const connectionMutex = new Mutex();
 
@@ -377,12 +412,12 @@ async function integrate(window: BrowserWindow) {
         const himdDefinedMethods = getDefinedFunctions(himdService);
         ipcMain.handle('_himd__definedParameters', () => [...himdDefinedMethods].map(e => '_himd_' + e));
         for(let methodName of himdDefinedMethods){
-            ipcMain.handle(`_himd_${methodName}`, async (_, ...allArgs: any[]) => {
+            handleDeviceIPC(`_himd_${methodName}`, async (_, ...allArgs: any[]) => {
                 console.log(`Execute: ${methodName}`);
                 if(methodName === 'connect'){
                     let connectionEstablished = false;
                     if(connection.socket) {
-                        connection.disconnect();
+                        await connection.shutdown();
                     }
                     try{
                         startServer();
@@ -412,15 +447,15 @@ async function integrate(window: BrowserWindow) {
             });
         }
 
-        const nwjsDefinedMethods = getDefinedFunctions(himdService);
+        const nwjsDefinedMethods = getDefinedFunctions(nwService);
         ipcMain.handle('_nwjs__definedParameters', () => [...nwjsDefinedMethods].map(e => '_nwjs_' + e));
         for(let methodName of nwjsDefinedMethods){
-            ipcMain.handle(`_nwjs_${methodName}`, async (_, ...allArgs: any[]) => {
+            handleDeviceIPC(`_nwjs_${methodName}`, async (_, ...allArgs: any[]) => {
                 console.log(`Execute: ${methodName}`);
                 if(methodName === 'connect'){
                     let connectionEstablished = false;
                     if(connection.socket) {
-                        connection.disconnect();
+                        await connection.shutdown();
                     }
                     try{
                         startServer();
@@ -455,10 +490,10 @@ async function integrate(window: BrowserWindow) {
         return await (await fetch(url, parameters)).text();
     });
 
-    ipcMain.handle('_signHiMDDisc', () => (global as any).signHiMDDisc());
-    ipcMain.handle('_signNWJS', () => (global as any).signNWJS());
+    handleDeviceIPC('_signHiMDDisc', () => (global as any).signHiMDDisc());
+    handleDeviceIPC('_signNWJS', () => (global as any).signNWJS());
 
-    ipcMain.handle('_debug_himdPullFile', async (e, a: string, b: string) => {
+    handleDeviceIPC('_debug_himdPullFile', async (e, a: string, b: string) => {
         console.log(`Pulling HiMD file ${a} to local ${b}`);
         const handle = await himdService.fsDriver!.fatfs!.open(a, false);
         if(!handle){
@@ -467,7 +502,7 @@ async function integrate(window: BrowserWindow) {
         fs.writeFileSync(b, await handle.readAll());
         await handle.close();
     });
-    ipcMain.handle('_debug_himdList', async (e, a: string) => {
+    handleDeviceIPC('_debug_himdList', async (e, a: string) => {
         console.log(`Listing HiMD dir ${a}`);
         const list = await himdService.fsDriver!.fatfs!.listDir(a);
         if(!list){
@@ -480,6 +515,7 @@ async function integrate(window: BrowserWindow) {
         return ewmdOpenDialog(window, filters, directory);     
     });
 
+    lifecycle.add('remaining-usb-handles', () => webusb.shutdown(shutdownLog));
     setupSettings(window);
     setupEncoder();
 
@@ -488,6 +524,7 @@ async function integrate(window: BrowserWindow) {
     nwService.deviceConnectedCallback = addKnownDeviceCB;
     himdService.deviceConnectedCallback = addKnownDeviceCB;
     webusb.ondisconnect = event => {
+        if (lifecycle.stopping) return;
         if([service, himdService, nwService].some(e => e.isDeviceConnected(event.device))) {
             reload(window);
         }
@@ -506,7 +543,7 @@ app.whenReady().then(() => {
         }
         const tgt = decodeURI(getOfRenderer(filePath));
         console.log(`[SANDBOX]: Requested ${tgt}`);
-        callback(tgt);
+        callback({ path: tgt, headers: { 'Access-Control-Allow-Origin': '*' } });
     });
     createWindow();
 });

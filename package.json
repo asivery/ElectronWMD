@@ -4,6 +4,12 @@
   "description": "Electron version of WebMinidisc Pro",
   "main": "dist/main.js",
   "scripts": {
+    "build:main": "node scripts/prepare-dependencies.cjs && tsc",
+    "test:shutdown": "npm run build:main && node --test tests/*.test.cjs && node scripts/test-socket-path.js",
+    "pack:shutdown-test": "bash build-renderer.sh && npm run build:main && electron-builder --mac --arm64 --dir --config electron-builder.test.json && node scripts/sign-test-app.cjs",
+    "install:test-runtime": "node scripts/install-test-runtime.cjs",
+    "test:smoke": "node scripts/run-smoke.cjs",
+    "test:packaged": "node scripts/smoke-packaged.cjs",
     "build": "./build-renderer.sh && ./run-fixes.sh && tsc",
     "start": "npm run build && NODE_ENV=development electron ./dist/main.js",
     "pack": "npm run build && electron-builder --dir",

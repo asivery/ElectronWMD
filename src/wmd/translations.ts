@@ -8,8 +8,24 @@ import { makeAsyncWorker, makeAsyncCryptoBlockProvider } from "himd-js/dist/node
 import { DevicesIds, UMSCHiMDFilesystem } from "himd-js";
 import { WebUSBDevice, findByIds, usb } from 'usb';
 import { unmountAll } from "../unmount-drives";
+import { WebUSBInterop } from '../wusb-interop';
 
 export class EWMDNetMD extends NetMDUSBService {
+    async shutdown(): Promise<void> {
+        clearInterval(this.statusMonitorTimer);
+        if (this.currentSession) await this.finalizeUpload();
+        await this.finalize();
+    }
+
+    override async finalize(): Promise<void> {
+        if (!this.netmdInterface) return;
+        // The upstream finalize catches reset failure and skips close. Close the
+        // WebUSB handle explicitly, while the libusb context is still alive.
+        await (navigator.usb as WebUSBInterop).closeDevice(device => this.isDeviceConnected(device), true);
+        this.netmdInterface = undefined;
+        this.dropCachedContentList();
+    }
+
     override getWorkerForUpload() {
         return [new Worker(
             path.join(__dirname, '..', '..', 'node_modules', 'netmd-js', 'dist', 'node-encrypt-worker.js')
@@ -20,6 +36,27 @@ export class EWMDNetMD extends NetMDUSBService {
 export class EWMDHiMD extends HiMDFullService {
     public fsDriver?: UMSCHiMDFilesystem;
     public deviceConnectedCallback?: (legacy: usb.Device, webusb: WebUSBDevice) => {}
+    private usbDevice?: WebUSBDevice;
+
+    async shutdown(): Promise<void> {
+        // Do not close the device after a failed flush/sign operation: retain it
+        // for retry so the pending metadata can still be committed.
+        if (this.atdata) await this.finalizeUpload();
+        if (this.session) {
+            await this.session.finalizeSession();
+            this.session = null;
+        }
+        this.streamingWorker?.close();
+        this.streamingWorker = null;
+        if (this.himd?.isDirty()) await this.flush();
+        await this.finalize();
+    }
+
+    override async finalize(): Promise<void> {
+        if (this.usbDevice) await (navigator.usb as WebUSBInterop).closeDevice(device => device === this.usbDevice);
+        this.usbDevice = undefined;
+        this.fsDriver = undefined;
+    }
 
     override getWorker(): any[] {
         return [new Worker(
@@ -43,6 +80,7 @@ export class EWMDHiMD extends HiMDFullService {
             await unmountAll(vendorId, deviceId);
         }
 
+        (navigator.usb as WebUSBInterop).trackLegacyDevice(legacyDevice);
         legacyDevice.open();
         const iface = legacyDevice.interface(0);
         try{
@@ -52,6 +90,7 @@ export class EWMDHiMD extends HiMDFullService {
             console.log("Couldn't detach the kernel driver. Expected on Windows.");
         }
         const webUsbDevice = await WebUSBDevice.createInstance(legacyDevice);
+        this.usbDevice = webUsbDevice;
         await webUsbDevice.open();
         if(process.platform === 'linux') {
             // TODO: Check windows.

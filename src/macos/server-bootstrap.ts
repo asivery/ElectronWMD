@@ -17,10 +17,8 @@ export function startServer(workDir?: string) {
 
 export function startOutsideElectron(executablePath: string, applicationRoot: string, userDataPath: string, workDir?: string) {
     const socketName = getSocketPath(workDir);
-    const canFail = (func: () => void) => {
-        try{ func() } catch(_){}
-    }
-    canFail(() => fs.unlinkSync(socketName));
+    // The server checks its PID before removing stale files. Do not unlink a
+    // live helper's socket here: it may still be finishing a write.
 
     let serverPath = pathJoin(applicationRoot, "dist", "macos", "server.js");
     if(!fs.existsSync(serverPath)) {
@@ -53,10 +51,24 @@ export class Connection {
     callbackHandler: ((service: string, name: string, ...args: any[]) => void) | null = null;
     
     deviceDisconnectedCallback?: () => void;
+    private shuttingDown = false;
+    private shutdownRequest?: Promise<void>;
 
-    connect(){
-        return new Promise<void>(res => {
+    connect(resetShutdown = true){
+        return new Promise<void>((res, reject) => {
+            if (resetShutdown) {
+                this.shuttingDown = false;
+                this.shutdownRequest = undefined;
+            }
             this.socket = new Socket();
+            this.socket.on('error', error => {
+                this.rejectPending(error);
+                reject(error);
+            });
+            this.socket.on('close', () => {
+                this.rejectPending(new Error('Device helper disconnected before replying'));
+                if (!this.shuttingDown) this.deviceDisconnectedCallback?.();
+            });
             this.outStream = new PackrStream({
                 copyBuffers: true,
                 structuredClone: true,
@@ -77,22 +89,22 @@ export class Connection {
                 unpackerStream.on('data', ({ type, name, value, service }: { type: string, name: string, service: string, value: any }) => {
                     if(type === "return"){
                         if(name !== this.awaitingReturnName){
-                            console.log(`Mismatch between awaited return and actual (${this.awaitingReturnName} != ${name})`);
-                            this.awaitingReturnReject("mismatch");
+                            this.rejectPending(new Error(`Unexpected helper reply: ${name}`));
+                            return;
                         }
+                        const resolve = this.awaitingReturnResolve;
+                        const reject = this.awaitingReturnReject;
+                        this.clearPending();
                         // value is [out, err]
                         if(value[1]){
-                            this.awaitingReturnReject(value[1]);
+                            reject?.(value[1]);
                         }else{
-                            this.awaitingReturnResolve(value[0]);
+                            resolve?.(value[0]);
                         }
                     }else if(type === "callback"){
                         this.callbackHandler?.(service, name, ...value);
                     }
                 });
-                if(this.deviceDisconnectedCallback) {
-                    this.socket.on('close', this.deviceDisconnectedCallback);
-                }
                 res();
             });
             this.socket.connect(getSocketPath());
@@ -135,13 +147,52 @@ export class Connection {
         return null;
     }
 
-    disconnect(){
-        this.socket.removeAllListeners('close');
-        this.socket.destroy();
+    private clearPending() {
+        this.awaitingReturnName = null;
+        this.awaitingReturnResolve = null;
+        this.awaitingReturnReject = null;
+    }
+
+    private rejectPending(error: Error) {
+        const reject = this.awaitingReturnReject;
+        this.clearPending();
+        reject?.(error);
+    }
+
+    shutdown(): Promise<void> {
+        if (this.shutdownRequest) return this.shutdownRequest;
+        this.shuttingDown = true;
+        if (!this.socket) return Promise.resolve();
+        this.shutdownRequest = (async () => {
+            if (this.socket.destroyed) {
+                // The server unlinks its socket only after successful cleanup.
+                // If it remains, reconnect to retry instead of abandoning it.
+                if (!fs.existsSync(getSocketPath())) return;
+                await this.connect(false);
+            }
+            const socket = this.socket;
+            let onClose: () => void;
+            const closed = new Promise<void>(resolve => {
+                onClose = resolve;
+                socket.once('close', onClose);
+            });
+            try {
+                await this.callMethod('__lifecycle', 'shutdown');
+                await closed;
+            } finally { socket.removeListener('close', onClose); }
+            this.socket = null;
+        })().catch(error => {
+            this.shutdownRequest = undefined;
+            throw error;
+        });
+        return this.shutdownRequest;
     }
 
     callMethod(service: string, name: string, ...allArgs: any[]): Promise<any>{
         return new Promise((res, rej) => {
+            if (!this.socket || this.socket.destroyed) return rej(new Error('Device helper is not connected'));
+            if (this.shuttingDown && service !== '__lifecycle') return rej(new Error('Device helper is shutting down'));
+            if (this.awaitingReturnName) return rej(new Error('A device helper request is already pending'));
             for (let i = 0; i < allArgs.length; i++) {
                 if (typeof allArgs[i] === 'function') {
                     allArgs[i] = { interprocessType: 'function' };

@@ -359,7 +359,7 @@ export function convertTrackToNJS(source: Track): NetMDTrack {
 }
 
 export class NetMDUSBService extends NetMDService {
-    private netmdInterface?: NetMDInterface;
+    protected netmdInterface?: NetMDInterface;
     private logger?: Logger;
     private cachedContentList?: Disc;
     public statusMonitorTimer: any;

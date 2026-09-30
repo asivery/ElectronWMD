@@ -5,8 +5,11 @@ import { HiMDKBPSToFrameSize, UMSCHiMDFilesystem, generateCodecInfo } from "himd
 import { AbstractedTrack, DatabaseAbstraction } from "networkwm-js/dist/database-abstraction";
 import { unmountAll } from "../unmount-drives";
 import { WebUSBDevice, findByIds, usb } from "usb";
+import { WebUSBInterop } from '../wusb-interop';
 
 export class NetworkWMService extends NetMDService {
+    private usbDevice?: WebUSBDevice;
+    private uploadPrepared = false;
     private name: string = "";
     private database: DatabaseAbstraction | null = null;
     private dirty = false;
@@ -21,7 +24,7 @@ export class NetworkWMService extends NetMDService {
     public constructor(private keyData?: Uint8Array){ super(); }
 
     isDeviceConnected(device: USBDevice): boolean {
-        return (this.database.database.filesystem as UMSCHiMDFilesystem).driver.isDeviceConnected(device);
+        return this.usbDevice === device;
     }
 
     async getServiceCapabilities(): Promise<Capability[]> {
@@ -65,6 +68,7 @@ export class NetworkWMService extends NetMDService {
             await unmountAll(matchedDevice.vendorId, matchedDevice.productId);
         }
 
+        (navigator.usb as WebUSBInterop).trackLegacyDevice(legacyDevice);
         legacyDevice.open();
         await new Promise(res => legacyDevice.reset(res));
         const iface = legacyDevice.interface(0);
@@ -75,6 +79,7 @@ export class NetworkWMService extends NetMDService {
             // console.log("Couldn't detach the kernel driver. Expected on Windows.");
         }
         const webUsbDevice = (await WebUSBDevice.createInstance(legacyDevice))!;
+        this.usbDevice = webUsbDevice;
         await webUsbDevice.open();
 
         this.deviceConnectedCallback?.(legacyDevice, webUsbDevice);
@@ -173,6 +178,8 @@ export class NetworkWMService extends NetMDService {
     session: UMSCNWJSSession | null = null;
 
     async prepareUpload() {
+        if (this.uploadPrepared) throw new Error('Upload is already prepared');
+        this.uploadPrepared = true;
         if(this.database.deviceInfo.disableDRM) return;
         if(this.session) throw new Error("Invalid state!");
         const filesystem = this.database.database.filesystem as UMSCHiMDFilesystem;
@@ -185,6 +192,8 @@ export class NetworkWMService extends NetMDService {
             await this.session.finalizeSession();
         await this.database.flushUpdates();
         this.session = null;
+        this.uploadPrepared = false;
+        this.dirty = false;
     }
 
     async upload(_title: TitleParameter, _: string, data: ArrayBuffer, format: Codec, progressCallback: (progress: { written: number; encrypted: number; total: number; }) => void): Promise<void> {
@@ -293,8 +302,16 @@ export class NetworkWMService extends NetMDService {
         return this.dirty;
     }
 
-    finalize(): Promise<void> {
-        return Promise.resolve();
+    async shutdown(): Promise<void> {
+        if (this.session || this.uploadPrepared) await this.finalizeUpload();
+        if (this.database && this.dirty) await this.flush();
+        await this.finalize();
+    }
+
+    async finalize(): Promise<void> {
+        if (this.usbDevice) await (navigator.usb as WebUSBInterop).closeDevice(device => device === this.usbDevice);
+        this.usbDevice = undefined;
+        this.database = null;
     }
 
     async download(index: number, progressCallback: (progress: { read: number; total: number; }) => void): Promise<{ extension: string; data: Uint8Array; }> {

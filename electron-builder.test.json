@@ -1,0 +1,16 @@
+{
+  "extends": null,
+  "electronVersion": "43.3.0",
+  "appId": "com.electron.electronwmd.shutdown-test",
+  "productName": "ElectronWMD Shutdown Test",
+  "extraMetadata": {
+    "name": "electronwmd-shutdown-test",
+    "version": "0.5.2-1.5.3-shutdown.1"
+  },
+  "directories": { "output": "build/shutdown-test", "buildResources": "res" },
+  "asar": false,
+  "npmRebuild": false,
+  "nodeGypRebuild": false,
+  "files": ["dist", "renderer", "res", "node_modules", "package.json"],
+  "mac": { "target": ["dir"], "identity": null, "category": "public.app-category.music" }
+}

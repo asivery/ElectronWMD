@@ -6,6 +6,8 @@ import path from 'path';
 import { NetworkWMService } from '../wmd/networkwm-service';
 import { WebUSBInterop } from '../wusb-interop';
 import { getPidPath, getSocketDir, getSocketPath } from './socket-path';
+import { ShutdownCoordinator } from '../shutdown';
+import { createShutdownLog } from '../shutdown-log';
 
 const socketName = getSocketPath();
 const pidFile = getPidPath();
@@ -14,11 +16,6 @@ const canFail = (func: () => void) => {
     try{ func() } catch(_){}
 }
 
-function closeAll(){
-    canFail(() => fs.unlinkSync(socketName));
-    canFail(() => fs.unlinkSync(pidFile));
-    process.exit();
-}
 function main() {
     console.log("ElectronWMD's MacOS SCSI intermediate server by asivery");
     console.log("Starting up...");
@@ -27,12 +24,14 @@ function main() {
     console.log(`PID file: ${pidFile}`);
     if(fs.existsSync(pidFile)) {
         const oldPid = parseInt(fs.readFileSync(pidFile).toString());
-        canFail(() => process.kill(oldPid, 'SIGTERM'));
-        canFail(() => fs.unlinkSync(pidFile));
+        try { process.kill(oldPid, 0); throw new Error(`Device helper ${oldPid} is already running`); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
+        fs.unlinkSync(pidFile);
     }
     
     fs.writeFileSync(pidFile, `${process.pid}`);
-    const webusb = WebUSBInterop.create();
+    const log = createShutdownLog(path.join(workDir, `ewmd-${process.env.ORIGINAL_UID || process.getuid()}`), 'helper');
+    const webusb = WebUSBInterop.create(log);
 
     Object.defineProperty(global, 'navigator', {
         writable: false,
@@ -45,7 +44,37 @@ function main() {
 
     canFail(() => fs.unlinkSync(socketName));
 
+    const lifecycle = new ShutdownCoordinator(log);
+    const himdDevice = new EWMDHiMD({ debug: true });
+    let keyData: Uint8Array | undefined;
+    try { keyData = new Uint8Array(fs.readFileSync(path.join(process.argv[2], 'EKBROOTS.DES'))); }
+    catch (_) { console.log("Can't read roots"); }
+    const nwDevice = new NetworkWMService(keyData);
+    lifecycle.add('himd', () => himdDevice.shutdown());
+    lifecycle.add('networkwm', () => nwDevice.shutdown());
+    lifecycle.add('remaining-usb-handles', () => webusb.shutdown(log));
     const server = createServer();
+    let exiting = false;
+    let failureKeepAlive: ReturnType<typeof setInterval> | undefined;
+    const removeSocketFiles = () => {
+        canFail(() => fs.unlinkSync(socketName));
+        canFail(() => fs.unlinkSync(pidFile));
+    };
+    async function closeAll() {
+        if (exiting) return;
+        try {
+            await lifecycle.shutdown();
+            exiting = true;
+            removeSocketFiles();
+            // All USB handles have been closed before Node finalizers run.
+            process.exit(0);
+        } catch (error) {
+            log('exit-blocked', String(error));
+            if (!failureKeepAlive) failureKeepAlive = setInterval(() => {}, 1000);
+        }
+    }
+    process.on('SIGTERM', () => { void closeAll(); });
+    process.on('SIGINT', () => { void closeAll(); });
     server.on('error', (err) => {
         console.error('Server error:', err);
         closeAll();
@@ -67,7 +96,7 @@ function main() {
             console.error('Failed setting socket ownership/permissions:', err);
         }
     });
-    server.on("close", closeAll);
+
     server.on('connection', (socket) => {
         console.log("Connection established.");
         socket.on('close', closeAll);
@@ -79,14 +108,6 @@ function main() {
             copyBuffers: true,
             structuredClone: true,
         });
-
-        const himdDevice = new EWMDHiMD({ debug: true });
-
-        let keyData: Uint8Array | undefined = undefined;
-        try{
-            keyData = new Uint8Array(fs.readFileSync(path.join(process.argv[2], 'EKBROOTS.DES')));
-        }catch(_){ console.log("Can't read roots") }
-        const nwDevice = new NetworkWMService(keyData);
 
         socket.pipe(unpackerStream);
         packerStream.pipe(socket);
@@ -101,6 +122,21 @@ function main() {
         }
 
         unpackerStream.on('data', async ({ service, name, allArgs }: { service: string, name: string, allArgs: any[] }) => {
+            if (service === '__lifecycle' && name === 'shutdown') {
+                try {
+                    await lifecycle.shutdown();
+                    exiting = true;
+                    removeSocketFiles();
+                    server.close();
+                    packerStream.end({ type: 'return', name, value: [null, null] });
+                    // Flush the acknowledgement before exiting the process.
+                    socket.once('finish', () => process.exit(0));
+                } catch (error) {
+                    log('exit-blocked', String(error));
+                    packerStream.write({ type: 'return', name, value: [null, String(error)] });
+                }
+                return;
+            }
             console.log(`Call to ${name}`);
             for (let i = 0; i < allArgs.length; i++) {
                 if (allArgs[i]?.interprocessType === 'function') {
@@ -112,14 +148,16 @@ function main() {
             }
             let res;
             try {
+                if (!['nwjs', 'himd'].includes(service) || name === 'shutdown') throw new Error('Invalid device method');
                 const serviceObject = service === 'nwjs' ? nwDevice : himdDevice;
-                res = [await (serviceObject as any)[name](...allArgs), null];
+                res = [await lifecycle.run(`${service}.${name}`, () => (serviceObject as any)[name](...allArgs)), null];
             } catch (err) {
                 console.log("Node Error: ");
                 console.log(err);
                 res = [null, err];
             }
 
+            if (socket.destroyed) return;
             packerStream.write({
                 type: 'return',
                 name,
@@ -131,6 +169,7 @@ function main() {
         nwDevice.deviceConnectedCallback = addKnownDeviceCB;
         himdDevice.deviceConnectedCallback = addKnownDeviceCB;
         webusb.ondisconnect = event => {
+            if (lifecycle.stopping) return;
             if([nwDevice, himdDevice].some(e => e.isDeviceConnected(event.device))) {
                 closeAll();
             }
