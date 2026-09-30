@@ -55,6 +55,7 @@ function main() {
     lifecycle.add('remaining-usb-handles', () => webusb.shutdown(log));
     const server = createServer();
     let exiting = false;
+    let clientWaitTimer: ReturnType<typeof setTimeout>;
     let failureKeepAlive: ReturnType<typeof setInterval> | undefined;
     const removeSocketFiles = () => {
         canFail(() => fs.unlinkSync(socketName));
@@ -62,6 +63,7 @@ function main() {
     };
     async function closeAll() {
         if (exiting) return;
+        clearTimeout(clientWaitTimer);
         try {
             await lifecycle.shutdown();
             exiting = true;
@@ -75,6 +77,12 @@ function main() {
     }
     process.on('SIGTERM', () => { void closeAll(); });
     process.on('SIGINT', () => { void closeAll(); });
+    // Authorization can finish after WMD has quit. Never leave an unused root
+    // helper behind; still use the regular cleanup path, including failed-flush protection.
+    clientWaitTimer = setTimeout(() => {
+        log('client-connection-timeout');
+        void closeAll();
+    }, 30000);
     server.on('error', (err) => {
         console.error('Server error:', err);
         closeAll();
@@ -98,6 +106,7 @@ function main() {
     });
 
     server.on('connection', (socket) => {
+        clearTimeout(clientWaitTimer);
         console.log("Connection established.");
         socket.on('close', closeAll);
         const packerStream = new PackrStream({

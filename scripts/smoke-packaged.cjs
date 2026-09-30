@@ -3,7 +3,7 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const { once } = require('node:events');
-const executable = path.resolve('build/shutdown-test/mac-arm64/ElectronWMD Shutdown Test.app/Contents/MacOS/ElectronWMD Shutdown Test');
+const executable = path.resolve(process.env.EWMD_PACKAGED_EXECUTABLE || 'build/shutdown-test/mac-arm64/ElectronWMD Shutdown Test.app/Contents/MacOS/ElectronWMD Shutdown Test');
 const directory = path.resolve('build/verification');
 const profile = fs.mkdtempSync('/tmp/ewmd-packaged-');
 fs.mkdirSync(directory, { recursive: true });
@@ -71,6 +71,34 @@ fs.mkdirSync(directory, { recursive: true });
         assert.equal(result.userData, profile);
         assert.equal(result.arch, 'arm64');
         assert.match(result.helperDir, /ewmd-shutdown-test-/);
+        if (process.env.EWMD_SMOKE_AUTHORIZATION === '1') {
+            const authorization = await evaluate(`(async () => {
+                const bootstrap = process.mainModule.require('./macos/server-bootstrap');
+                const original = bootstrap.startServer;
+                let launches = 0;
+                bootstrap.startServer = async () => {
+                    launches++;
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    throw new Error('Administrator authorization was cancelled. Please connect again to retry.');
+                };
+                try {
+                    const window = process.mainModule.require('electron').BrowserWindow.getAllWindows()[0];
+                    const messages = await window.webContents.executeJavaScript(\`(async () => {
+                        const service = window.native.himdFullInterface;
+                        const failure = promise => promise.then(() => 'unexpected success', error => error.message);
+                        const errors = await Promise.all([failure(service.connect()), failure(service.connect())]);
+                        errors.push(await failure(service.pair()));
+                        errors.push(await failure(service.connect()));
+                        return errors;
+                    })()\`);
+                    return { launches, messages, simulated: true };
+                } finally { bootstrap.startServer = original; }
+            })()`);
+            assert.equal(authorization.launches, 2);
+            assert.equal(authorization.messages.length, 4);
+            for (const message of authorization.messages) assert.match(message, /authorization was cancelled/);
+            result.authorization = authorization;
+        }
         await evaluate("setTimeout(() => process.mainModule.require('electron').BrowserWindow.getAllWindows()[0].close(), 100); 'closing'");
         socket.close();
         const [code, signal] = await exited;

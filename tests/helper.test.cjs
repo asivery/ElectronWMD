@@ -14,7 +14,7 @@ test('helper reports closed handles before EOF, and exits cleanly on RPC, discon
     const root = fs.mkdtempSync('/tmp/ewmd-helper-');
     const executable = process.env.EWMD_TEST_ELECTRON || process.execPath;
     try {
-        for (const mode of ['rpc', 'connection-shutdown', 'disconnect', 'sigterm']) {
+        for (const mode of ['rpc', 'connection-shutdown', 'disconnect', 'sigterm', 'no-client']) {
             const workDir = path.join(root, mode);
             fs.mkdirSync(workDir);
             const child = spawn(executable, [path.resolve('dist/macos/server.js'), workDir], {
@@ -48,7 +48,7 @@ test('helper reports closed handles before EOF, and exits cleanly on RPC, discon
                         if (old === undefined) delete process.env.EWWORKDIR; else process.env.EWWORKDIR = old;
                     }
                 }
-                else {
+                else if (mode !== 'no-client') {
                     const socket = net.createConnection(socketPath);
                     await once(socket, 'connect');
                     if (mode === 'disconnect') socket.destroy();
@@ -67,6 +67,7 @@ test('helper reports closed handles before EOF, and exits cleanly on RPC, discon
                 assert.equal(fs.existsSync(socketPath), false);
                 assert.equal(fs.existsSync(getPidPath(workDir)), false);
                 assert.match(output, /shutdown-complete/);
+                if (mode === 'no-client') assert.match(output, /client-connection-timeout/);
             } finally {
                 if (child.exitCode === null && !child.signalCode) { child.kill('SIGTERM'); await exited; }
             }

@@ -25,6 +25,11 @@ You can:
 - Start the development version (`npm start`)
 - Deploy the production version (`npm run dist`)
 - Deploy the production versions for macOS (`npm run dist-mac`)
+- Build a Windows x64 ZIP on macOS or Linux (`npm run dist:win`, Node.js 20+).
+  This uses a JavaScript resource editor to embed `res/icon.ico` and application
+  metadata without Wine. The unsigned ZIP is written to `build/windows-x64/`;
+  extract the whole archive and run `electronwmd.exe`. The build verifies the
+  embedded icon and that executable code and unrelated resources are unchanged.
 ____
 
 ### Important development changes

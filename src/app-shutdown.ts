@@ -18,6 +18,9 @@ let mainWindow: BrowserWindow | undefined;
 let allowQuit = false;
 let restarting = false;
 let request: Promise<void> | undefined;
+const shutdownController = new AbortController();
+// Cancel authorization waits before draining admitted operations.
+export const shutdownSignal = shutdownController.signal;
 
 export const lifecycle = new ShutdownCoordinator(shutdownLog, () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -38,6 +41,7 @@ export function attachShutdownWindow(window: BrowserWindow) {
 export function requestShutdown(source: string, restart = false): Promise<void> {
     restarting = restarting || restart;
     if (request) return request;
+    shutdownController.abort();
     shutdownLog('exit-request', { source, restart: restarting, pending: lifecycle.pendingCount });
     request = lifecycle.shutdown().then(() => {
         allowQuit = true;

@@ -88,3 +88,75 @@ libusb 上下文销毁顺序，不把清空缓存或强制退出作为修复。
 
 回退时退出测试应用并重新打开原安装版本即可。当前没有执行正式替换、发布或提交远程 PR。
 源码差异同时导出到 `build/ElectronWMD-shutdown.patch`，应用压缩包及校验值位于 `build/`。
+
+## 2026-09-23：录歌停在转换 0%
+
+现场控制台报错：`Failed to execute 'importScripts' on 'WorkerGlobalScope':
+The script at 'sandbox://worker.min.js/' failed to load.`
+当时只有 `prepareUpload` 完成，没有开始传输歌曲。
+
+根因：旧版 renderer 把根目录资源写成 `sandbox://worker.min.js`，标准协议 URL
+会自动补成 `sandbox://worker.min.js/`。主进程将末尾斜杠保留到本地文件路径，
+导致系统把 JS 文件按目录打开并失败。修复在本地路径解析时移除末尾分隔符，
+同时覆盖 `ffmpeg-core.js`，无需更改歌曲、编码设置或 USB 驱动。
+
+新增 `scripts/smoke-conversion.cjs`，在独立用户目录运行真实 Electron/FFmpeg，
+用生成的 1 秒立体声音频验证 worker 启动、两次 PCM 转换的逐样本一致性，以及
+MP3 转换。修复前复现同一加载错误，修复后每次 PCM 输出 176400 字节，
+MP3 输出 17180 字节。测试不连接实体设备。
+
+```sh
+npm run build:main
+build/electron-43.3.0/Electron.app/Contents/MacOS/Electron scripts/smoke-conversion.cjs
+```
+
+本次更新了 `/Applications/ElectronWMD.app` 的 `dist/main.js` 及 source map，
+保留其他组件和用户设置，并重新完成本地临时签名。原安装包备份在
+`build/backups/ElectronWMD-before-conversion-fix.app`。
+转换验证日志见 `build/verification/conversion-{before,after,installed}.log`。
+实体 MD 的最终写入仍需用户重试确认。
+
+## 2026-09-23：Hi-MD 改用系统管理员授权框
+
+macOS 的 Hi-MD / Network Walkman 连接改用 AppleScript 的
+`do shell script ... with administrator privileges`，不再启动 Terminal 或执行交互式 sudo。
+密码由系统接收。辅助进程使用后台模式，显式传递 Electron Node 模式、工作目录及原用户 UID/GID，
+标准输入关闭，输出写入 `/tmp/ewmd-helper.XXXXXX/helper.log`。
+日志目录由提权进程创建，打开日志文件后将目录和日志交给当前用户，权限分别为 0700 和 0600；
+启动超时会把日志末尾最多 8 KiB 和日志路径附在错误中。
+
+同一服务同时发起的连接请求合并；重连和设备 RPC 串行执行。
+授权成功后等待 Socket 最多 30 秒，取消授权后可重试，失败原因保留至后续配对错误显示。
+退出 WMD 会先取消授权等待，再等待已提交的设备操作并执行原有刷盘和关闭流程。
+辅助进程 30 秒没有客户端连接时走正常清理流程退出，不强杀设备写入。
+
+验证：24 项自动测试通过，辅助进程集成测试使用 Electron 43.3.0；最后的错误传递修改也通过
+相关 9 项回归。实际编译了授权 AppleScript，验证中文、空格、单双引号、反斜杠及换行路径的
+AppleScript/Shell 往返与日志权限。独立 arm64 打包应用通过临时签名校验、界面启动和正常退出；
+真实 Electron IPC 中模拟取消授权，验证重复连接只启动一次、后续配对保留错误且能够重试。
+这些测试未输入真实管理员密码，也未连接实体 Hi-MD。
+
+测试应用：`build/authorization-test/mac-arm64/ElectronWMD Shutdown Test.app`。
+本次未替换 `/Applications` 中的应用。构建后可复现打包回归：
+
+```sh
+EWMD_PACKAGED_EXECUTABLE="$PWD/build/authorization-test/mac-arm64/ElectronWMD Shutdown Test.app/Contents/MacOS/ElectronWMD Shutdown Test" EWMD_SMOKE_AUTHORIZATION=1 node scripts/smoke-packaged.cjs
+```
+
+### 同日修正：授权后等待 30 秒超时
+
+用户提供的 `/tmp/ewmd-helper.qIhJYb/helper.log` 经系统授权读取后显示：
+`nohup: can't detach from console: No such process`。
+这是原后台命令在无控制终端的管理员环境中退出，设备服务尚未启动；并非密码错误。
+
+删除 `/usr/bin/nohup`，改为后台子 shell 中 `trap '' HUP` 后 `exec` 设备服务，
+继续关闭标准输入并重定向输出。根权限下先打开日志文件描述符，再把目录和文件交给当前用户，
+避免再次为读取启动错误请求管理员密码。
+
+7 项启动测试通过；通过真实系统密码框完成提权集成测试，验证辅助进程 PID 文件属主为 root、
+Socket 属主为当前用户、日志可读取且权限为 0600，连接后正常关闭并移除 Socket/PID。
+成功日志：`/tmp/ewmd-helper.modRrE/helper.log`。该验证没有执行实体设备配对、读盘或写盘。
+
+修正版应用位于 `build/authorization-fixed/mac-arm64/ElectronWMD Shutdown Test.app`，
+保留先前运行中的测试应用及 `/Applications` 安装版本。修正版完成本地签名校验和打包界面回归。
+打开修正版时请先退出旧测试应用。实体 Hi-MD 的读盘和写盘仍需实机验收。

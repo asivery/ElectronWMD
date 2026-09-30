@@ -68,3 +68,17 @@ test('failed cleanup retains window and restart intent until a successful retry'
         assert.deepEqual(f.events, ['error-dialog', 'relaunch', 'destroy', 'quit']);
     } finally { f.dispose(); }
 });
+
+test('closing WMD cancels authorization before draining the connection operation', async () => {
+    const f = fixture();
+    try {
+        const connecting = f.lifecycle.run('authorize', () => new Promise((_, reject) => {
+            f.shutdownSignal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true });
+        }));
+        const cancelled = assert.rejects(connecting, /cancelled/);
+        await Promise.resolve();
+        await f.requestShutdown('window-close');
+        await cancelled;
+        assert.deepEqual(f.events, ['destroy', 'quit']);
+    } finally { f.dispose(); }
+});

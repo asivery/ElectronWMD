@@ -14,6 +14,7 @@
     "start": "npm run build && NODE_ENV=development electron ./dist/main.js",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder -wl --x64 && electron-builder -w --ia32",
+    "dist:win": "npm run build && electron-builder --config electron-builder.win.cjs --win zip --x64",
     "dist-mac": "./build-renderer.sh && ./run-fixes-macdist.sh && tsc && electron-builder -m --x64 && electron-builder -m --arm64"
   },
   "build": {
@@ -65,6 +66,7 @@
     "@types/node-fetch": "^2.6.2",
     "electron": "^31.2.1",
     "electron-builder": "^24.13.3",
-    "prettier": "^2.7.1"
+    "prettier": "^2.7.1",
+    "resedit": "3.1.0"
   }
 }

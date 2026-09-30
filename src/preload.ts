@@ -24,6 +24,31 @@ export interface ChangelogVersionInjection {
 
 export const CHANGELOG: ChangelogVersionInjection[] = [
     {
+        before: 'Version 1.5.3',
+        entry: {
+            name: 'Version 1.5.4',
+            contents: [
+                {
+                    type: 'sublist',
+                    name: 'Improved shutdown and restart stability',
+                    content: [
+                        "Wait for active device operations and pending disc updates before closing USB connections",
+                        "Coordinate macOS helper shutdown and allow retrying failed cleanup without forcing the app to quit",
+                    ],
+                },
+                {
+                    type: 'sublist',
+                    name: 'Added Pinyin and Japanese character conversion for NetMD titles',
+                    content: [
+                        "Edit the original Unicode title and convert it to Pinyin with saved spacing and capitalization settings",
+                        "Convert Chinese characters to Japanese character forms with To JIS and check device character compatibility and title length before saving",
+                        "Read original titles from music file tags and preserve saved title edits when reordering or extending the upload queue",
+                    ],
+                },
+            ],
+        },
+    },
+    {
         before: 'Version 1.5.0',
         entry: {
             name: 'ElectronWMD 0.5.0-1.5.0',

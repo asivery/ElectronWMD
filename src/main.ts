@@ -7,15 +7,14 @@ import { EWMDHiMD, EWMDNetMD } from './wmd/translations';
 import { Codec, NetMDFactoryService } from './wmd/original/services/interfaces/netmd';
 import fetch from 'node-fetch';
 import Store from 'electron-store';
-import { Connection, startServer } from './macos/server-bootstrap';
+import { DeviceHelperSession } from './macos/device-session';
 import { spawn } from 'child_process';
 import { NetworkWMService } from './wmd/networkwm-service';
 import contextMenu from 'electron-context-menu';
 import prompt from 'electron-prompt';
 import { EKBROOTS } from 'networkwm-js/dist/encryption';
-import { Mutex } from 'async-mutex';
 import { WebUSBInterop } from './wusb-interop';
-import { attachShutdownWindow, lifecycle, requestShutdown, shutdownLog } from './app-shutdown';
+import { attachShutdownWindow, lifecycle, requestShutdown, shutdownLog, shutdownSignal } from './app-shutdown';
 
 const getOfRenderer = (...p: string[]) => path.join(__dirname, '..', 'renderer', ...p);
 
@@ -403,86 +402,32 @@ async function integrate(window: BrowserWindow) {
         const nwDeflist = traverseObject(window, () => nwService, "_nwjs_");
         ipcMain.handle('_nwjs__definedParameters', () => nwDeflist);    
     } else {
-        const connection = new Connection();
-        lifecycle.add('macos-helper', () => connection.shutdown());
+        const session = new DeviceHelperSession(undefined, undefined, () => {
+            if (!window.isDestroyed() && !lifecycle.stopping) {
+                if (window.isMinimized()) window.restore();
+                window.focus();
+            }
+        });
+        const connection = session.connection;
+        shutdownSignal.addEventListener('abort', () => session.cancelStartup(), { once: true });
+        if (shutdownSignal.aborted) session.cancelStartup();
+        lifecycle.add('macos-helper', () => session.shutdown());
         connection.deviceDisconnectedCallback = () => reload(window);
-        const connectionMutex = new Mutex();
-
         connection.callbackHandler = (service, name: string, ...args: any[]) => window.webContents.send("_callback", (service === 'himd' ? '_himd_' : '_nwjs_') + name, ...args);
-        const himdDefinedMethods = getDefinedFunctions(himdService);
-        ipcMain.handle('_himd__definedParameters', () => [...himdDefinedMethods].map(e => '_himd_' + e));
-        for(let methodName of himdDefinedMethods){
-            handleDeviceIPC(`_himd_${methodName}`, async (_, ...allArgs: any[]) => {
-                console.log(`Execute: ${methodName}`);
-                if(methodName === 'connect'){
-                    let connectionEstablished = false;
-                    if(connection.socket) {
-                        await connection.shutdown();
-                    }
-                    try{
-                        startServer();
-                    }catch(ex) {
-                        return [null, ex];
-                    }
-                    const error = await connection.awaitConnection();
-                    connectionEstablished = true;
-                    if(error) {
-                        return [null, error];
-                    }
-                }
-                if(!connection.socket) {
-                    return [null, new Error("Server not ready!")];
-                }
 
-                const release = await connectionMutex.acquire();
-                try {
-                    return [await connection.callMethod('himd', methodName, ...allArgs), null];
-                } catch (err) {
-                    console.log("External HIMD Error: ");
-                    console.log(err);
-                    return [null, err];
-                } finally {
-                    release();
-                }
-            });
-        }
-
-        const nwjsDefinedMethods = getDefinedFunctions(nwService);
-        ipcMain.handle('_nwjs__definedParameters', () => [...nwjsDefinedMethods].map(e => '_nwjs_' + e));
-        for(let methodName of nwjsDefinedMethods){
-            handleDeviceIPC(`_nwjs_${methodName}`, async (_, ...allArgs: any[]) => {
-                console.log(`Execute: ${methodName}`);
-                if(methodName === 'connect'){
-                    let connectionEstablished = false;
-                    if(connection.socket) {
-                        await connection.shutdown();
+        for (const [service, instance] of [['himd', himdService], ['nwjs', nwService]] as const) {
+            const methods = getDefinedFunctions(instance);
+            ipcMain.handle(`_${service}__definedParameters`, () => [...methods].map(name => `_${service}_${name}`));
+            for (const method of methods) {
+                handleDeviceIPC(`_${service}_${method}`, async (_, ...args: any[]) => {
+                    try {
+                        return [await session.call(service, method, ...args), null];
+                    } catch (error) {
+                        // Preserve a readable message across Electron's IPC boundary.
+                        return [null, error instanceof Error ? error : new Error(String(error))];
                     }
-                    try{
-                        startServer();
-                    }catch(ex) {
-                        return [null, ex];
-                    }
-                    const error = await connection.awaitConnection();
-                    connectionEstablished = true;
-                    if(error) {
-                        return [null, error];
-                    }
-                }
-                if(!connection.socket) {
-                    return [null, new Error("Server not ready!")];
-                }
-
-                const release = await connectionMutex.acquire();
-                try {
-                    return [await connection.callMethod('nwjs', methodName, ...allArgs), null];
-                } catch (err) {
-                    console.log("External NWJS Error: ");
-                    console.log(err);
-                    return [null, err];
-                } finally {
-                    release();
-                }
-            });
+                });
+            }
         }
     }
 
@@ -537,7 +482,10 @@ contextMenu({
 
 app.whenReady().then(() => {
     protocol.registerFileProtocol('sandbox', (rq, callback) => {
-        const filePath = path.normalize(rq.url.substring('sandbox://'.length));
+        // Legacy renderer URLs put root assets in the host (sandbox://worker.min.js).
+        // Chromium canonicalizes those to sandbox://worker.min.js/. A trailing
+        // separator makes the filesystem treat the script as a directory (ENOTDIR).
+        const filePath = path.normalize(rq.url.substring('sandbox://'.length)).replace(/[/\\]+$/, '');
         if (path.isAbsolute(filePath) || filePath.includes('..')) {
             app.quit();
         }

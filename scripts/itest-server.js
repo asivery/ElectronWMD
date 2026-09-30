@@ -57,32 +57,34 @@ async function run() {
   try { fs.unlinkSync(expectedPid); } catch (_) {}
 
   // Launch server
-  const child = bootstrap.startOutsideElectron(
-    path.resolve(__dirname, '..', 'node_modules', '.bin', 'electron'),
-    path.resolve(__dirname, '..'),
+  const logPath = await bootstrap.startOutsideElectron(
+    process.env.EWMD_TEST_ELECTRON || path.resolve(__dirname, '..', 'node_modules', '.bin', 'electron'),
+    process.env.EWMD_TEST_APP_ROOT || path.resolve(__dirname, '..'),
     '/tmp/',
     workDir,
   );
+  console.log('Helper log:', logPath);
 
   // Wait for socket to appear
   await waitForSocket(expectedSocket, 10000);
+  assert.strictEqual(fs.statSync(expectedPid).uid, 0, 'helper must really run as root');
+  assert.strictEqual(fs.statSync(expectedSocket).uid, process.getuid(), 'WMD must own its socket');
+  assert.strictEqual(fs.statSync(logPath).uid, process.getuid(), 'WMD must be able to read its startup log');
+  assert.strictEqual(fs.statSync(logPath).mode & 0o777, 0o600);
+  assert(fs.readFileSync(logPath, 'utf8').includes('Server listening on socket:'), 'helper must reach readiness');
 
   // Try connecting to it
-  const serverPid = parseInt(fs.readFileSync(expectedPid));
   await tryConnect(expectedSocket);
 
-  await new Promise(res => setTimeout(res, 5000));
-  try {
-    process.kill(serverPid, 0);
-    // The process is alive
-    throw new Error('server did not exit in time');
-  } catch(_ex) {
-    assert(!fs.existsSync(expectedSocket));
-    assert(!fs.existsSync(expectedPid));
-    fs.rmdirSync(workDir);
+  // Private root-owned PID files must not be read or removed by the client.
+  // The helper removes its socket and PID only after successful device cleanup.
+  for (let i = 0; i < 100 && (fs.existsSync(expectedSocket) || fs.existsSync(expectedPid)); i++) {
+    await new Promise(res => setTimeout(res, 100));
   }
+  assert(!fs.existsSync(expectedSocket), 'server did not remove its socket');
+  assert(!fs.existsSync(expectedPid), 'server did not remove its PID file');
 
-  console.log('integration test passed');
+  console.log('integration test passed; shutdown diagnostics retained in', workDir);
 }
 
 run().catch(err => {
