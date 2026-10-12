@@ -1,11 +1,12 @@
-import { usb, WebUSB, WebUSBDevice } from "usb";
+import { WebUSB } from "usb";
 import { DevicesIds as  NetMDDevicesIds } from 'netmd-js';
 import { DevicesIds as  HiMDDevicesIds } from 'himd-js';
 import { DeviceIds as NWDevicesIds } from 'networkwm-js';
+import { UsbDevice } from "usb/index";
 
 export class WebUSBInterop extends WebUSB {
-    addKnownDevice(legacy: usb.Device, webusbInstance: WebUSBDevice){
-        this.knownDevices.set(legacy, webusbInstance);
+    addKnownDevice(key: string, device: UsbDevice){
+        this.knownDevices.set(key, device);
     }
 
     static create(){

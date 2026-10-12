@@ -131,7 +131,7 @@ function setupSettings(window: BrowserWindow) {
     ipcMain.removeHandler('fetch_settings_list');
 
     ipcMain.handle("setting_update", async (_, name: string, newValue: Setting['state']) => {
-        const setting = settings.find(e => e.name === name);
+        const setting = settings.find(e => e?.name === name);
         if((setting as any).handleChange){
             await (setting as any).handleChange(newValue);
             setupSettings(window);
@@ -316,8 +316,8 @@ async function integrate(window: BrowserWindow) {
             handleBadSectorResolve = null;
             shouldAbortAtracDownload = false;
 
-            const enableHandleBadSector = allArgs[3].handleBadSector;
-            const enableShouldCancelImmediately = allArgs[3].handleBadSector;
+            const enableHandleBadSector = allArgs[3]!.handleBadSector;
+            const enableShouldCancelImmediately = allArgs[3]!.handleBadSector;
 
             allArgs[3] = {
                 ...allArgs[3],
@@ -454,6 +454,7 @@ async function integrate(window: BrowserWindow) {
         const handle = await himdService.fsDriver!.fatfs!.open(a, false);
         if(!handle){
             console.log("No file!");
+            return;
         }
         fs.writeFileSync(b, await handle.readAll());
         await handle.close();
@@ -463,6 +464,7 @@ async function integrate(window: BrowserWindow) {
         const list = await himdService.fsDriver!.fatfs!.listDir(a);
         if(!list){
             console.log("No such dir!");
+            return;
         }
         console.log(list.join(', '));
     });

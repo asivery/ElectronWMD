@@ -6,7 +6,7 @@ import path from 'path';
 import { Worker } from 'worker_threads';
 import { makeAsyncWorker, makeAsyncCryptoBlockProvider } from "himd-js/dist/node-crypto-worker";
 import { DevicesIds, UMSCHiMDFilesystem } from "himd-js";
-import { WebUSBDevice, findByIds, usb } from 'usb';
+import { UsbDevice, nativeFindDeviceByIds } from 'usb/index';
 import { unmountAll } from "../unmount-drives";
 
 export class EWMDNetMD extends NetMDUSBService {
@@ -19,7 +19,7 @@ export class EWMDNetMD extends NetMDUSBService {
 
 export class EWMDHiMD extends HiMDFullService {
     public fsDriver?: UMSCHiMDFilesystem;
-    public deviceConnectedCallback?: (legacy: usb.Device, webusb: WebUSBDevice) => {}
+    public deviceConnectedCallback?: (key: string, device: UsbDevice) => void
 
     override getWorker(): any[] {
         return [new Worker(
@@ -32,33 +32,30 @@ export class EWMDHiMD extends HiMDFullService {
         if(this.bypassFSCoherencyChecks) {
             console.log("Warning: All FAT filesystem coherency checks are bypassed!\nThis might cause data corruption!")
         }
-        let legacyDevice: any, vendorId, deviceId;
+        let webUsbDevice: UsbDevice | null = null, vendorId, deviceId;
         for({ vendorId, deviceId } of DevicesIds){
-            legacyDevice = findByIds(vendorId, deviceId);
-            if(legacyDevice) break;
+            webUsbDevice = await nativeFindDeviceByIds(vendorId, deviceId);
+            if(webUsbDevice) break;
         }
-        if(!legacyDevice) return false;
+        if(!webUsbDevice) return false;
 
         if(['darwin', 'linux'].includes(process.platform)){
-            await unmountAll(vendorId, deviceId);
+            await unmountAll(vendorId!, deviceId!);
         }
 
-        legacyDevice.open();
-        const iface = legacyDevice.interface(0);
+        webUsbDevice.open();
         try{
-            if(iface.isKernelDriverActive())
-                iface.detachKernelDriver();
+            webUsbDevice.detachKernelDriver(0);
         }catch(ex){
             console.log("Couldn't detach the kernel driver. Expected on Windows.");
         }
-        const webUsbDevice = await WebUSBDevice.createInstance(legacyDevice);
         await webUsbDevice.open();
         if(process.platform === 'linux') {
             // TODO: Check windows.
             // Resetting on MacOS reattaches the system driver.
             await webUsbDevice.reset();
         }
-        this.deviceConnectedCallback?.(legacyDevice, webUsbDevice);
+        this.deviceConnectedCallback?.(webUsbDevice.serialNumber ?? 'himd', webUsbDevice);
         this.fsDriver = new UMSCHiMDFilesystem(webUsbDevice);
         return true;
     }

@@ -5,7 +5,7 @@ import { createNWJSFS } from 'networkwm-js/dist/node-helpers';
 import { HiMDKBPSToFrameSize, UMSCHiMDFilesystem, generateCodecInfo } from "himd-js";
 import { AbstractedTrack, DatabaseAbstraction } from "networkwm-js/dist/database-abstraction";
 import { unmountAll } from "../unmount-drives";
-import { WebUSBDevice, findByIds, usb } from "usb";
+import { nativeFindDeviceByIds, UsbDevice } from "usb/index";
 
 export class NetworkWMService extends NetMDService {
     private name: string = "";
@@ -18,11 +18,11 @@ export class NetworkWMService extends NetMDService {
         total: number,
         used: number,
     } | null = null;
-    public deviceConnectedCallback?: (legacy: usb.Device, webusb: WebUSBDevice) => {}
+    public deviceConnectedCallback?: (key: string, device: UsbDevice) => void
     public constructor(private keyData?: Uint8Array){ super(); }
 
     isDeviceConnected(device: USBDevice): boolean {
-        return (this.database.database.filesystem as UMSCHiMDFilesystem).driver.isDeviceConnected(device);
+        return !!this.database && (this.database.database.filesystem as UMSCHiMDFilesystem).driver.isDeviceConnected(device);
     }
 
     async getServiceCapabilities(): Promise<Capability[]> {
@@ -50,38 +50,35 @@ export class NetworkWMService extends NetMDService {
         }
         await initCrypto();
         importKeys(this.keyData);
-        let legacyDevice: any;
+        let webUsbDevice: UsbDevice | null = null;
         let matchedDevice: DeviceDefinition | null = null;
         for(const dev of DeviceIds){
             const { vendorId, productId, name } = dev;
-            legacyDevice = findByIds(vendorId, productId);
-            if(legacyDevice) {
+            webUsbDevice = await nativeFindDeviceByIds(vendorId, productId);
+            if(webUsbDevice) {
                 matchedDevice = dev;
                 break;
             }
         }
-        if(!legacyDevice) return false;
+        if(!webUsbDevice || !matchedDevice) return false;
 
         if(['darwin', 'linux'].includes(process.platform)){
             await unmountAll(matchedDevice.vendorId, matchedDevice.productId);
         }
 
-        legacyDevice.open();
-        await new Promise(res => legacyDevice.reset(res));
-        const iface = legacyDevice.interface(0);
+        webUsbDevice.open();
+        await webUsbDevice.reset();
         try{
-            if(iface.isKernelDriverActive())
-                iface.detachKernelDriver();
+            webUsbDevice.detachKernelDriver(0);
         }catch(ex){
             // console.log("Couldn't detach the kernel driver. Expected on Windows.");
         }
-        const webUsbDevice = (await WebUSBDevice.createInstance(legacyDevice))!;
         await webUsbDevice.open();
 
-        this.deviceConnectedCallback?.(legacyDevice, webUsbDevice);
+        this.deviceConnectedCallback?.(webUsbDevice.serialNumber || 'networkwm', webUsbDevice);
 
         const fs = await createNWJSFS({
-            dev: webUsbDevice,
+            dev: webUsbDevice as any,
             definition: matchedDevice,
         });
         this.database = await DatabaseAbstraction.create(fs, matchedDevice);
@@ -107,11 +104,11 @@ export class NetworkWMService extends NetMDService {
 
     async listContent(dropCache?: boolean): Promise<Disc> {
         if(this.cache === null || dropCache) {
-            const sorted = this.database.getTracksSortedArtistAlbum();
+            const sorted = this.database!.getTracksSortedArtistAlbum();
             const nwjsTracks: AbstractedTrack[] = [];
             const groups = [];
 
-            let { left, total, used } = await this.database.database.filesystem.statFilesystem();
+            let { left, total, used } = await this.database!.database.filesystem.statFilesystem();
 
             if(left < 4 * 1048576) {
                 // If we have less than 4 MiB left, make it seem the drive is 100% filled.
@@ -174,9 +171,9 @@ export class NetworkWMService extends NetMDService {
     session: UMSCNWJSSession | null = null;
 
     async prepareUpload() {
-        if(this.database.deviceInfo.disableDRM) return;
+        if(this.database!.deviceInfo.disableDRM) return;
         if(this.session) throw new Error("Invalid state!");
-        const filesystem = this.database.database.filesystem as UMSCHiMDFilesystem;
+        const filesystem = this.database!.database.filesystem as UMSCHiMDFilesystem;
         this.session = new UMSCNWJSSession(filesystem.driver as SonyVendorNWJSUSMCDriver, filesystem);
         await this.session.performAuthorization();
     }
@@ -184,7 +181,7 @@ export class NetworkWMService extends NetMDService {
     async finalizeUpload() {
         if(this.session != null)
             await this.session.finalizeSession();
-        await this.database.flushUpdates();
+        await this.database!.flushUpdates();
         this.session = null;
     }
 
@@ -197,7 +194,7 @@ export class NetworkWMService extends NetMDService {
 
         if(format.codec === 'MP3') {
             this.cache = null;
-            return this.database.uploadMP3Track(
+            return this.database!.uploadMP3Track(
                 {
                     artist: artist ?? 'Unknown Artist',
                     album: album ?? 'Unknown Album',
@@ -213,7 +210,7 @@ export class NetworkWMService extends NetMDService {
         if(format.codec !== 'A3+' && format.codec !== 'AT3') throw new Error("Invalid format!");
         const codecInfo = generateCodecInfo(format.codec, codecFrameSizeFamily[format.bitrate!]);
 
-        await this.database.uploadTrack(
+        await this.database!.uploadTrack(
             {
                 artist: artist ?? 'Unknown Artist',
                 album: album ?? 'Unknown Album',
@@ -221,7 +218,7 @@ export class NetworkWMService extends NetMDService {
                 title: title ?? 'Unknown Title',
             }, codecInfo,
             new Uint8Array(data),
-            this.session,
+            this.session!,
             (done, outOf) => progressCallback({ written: done, encrypted: outOf, total: outOf })
         );
         this.cache = null;
@@ -230,7 +227,7 @@ export class NetworkWMService extends NetMDService {
     async renameTrack(index: number, newTitle: TitleParameter, newFullWidthTitle?: string): Promise<void> {
         // The objects are never cloned - current cache maintains a reference to the database abstraction's track structure
         if(!this.cache) await this.listContent();
-        const track = this.cache.nwjsTracks[index];
+        const track = this.cache!.nwjsTracks[index];
         const metadata: TrackMetadata = {
             artist: track.artist ?? 'Unknown Artist',
             album: track.album ?? 'Unknown Album',
@@ -244,7 +241,7 @@ export class NetworkWMService extends NetMDService {
             if(newTitle.artist) metadata.artist = newTitle.artist;
         }
 
-        await this.database.renameTrack(track.systemIndex, metadata);
+        await this.database!.renameTrack(track.systemIndex, metadata);
         await this.flush(); // Do not let the OMA files get desync'd with database.
         this.cache = null;
     }
@@ -253,7 +250,7 @@ export class NetworkWMService extends NetMDService {
         // Sorting here does not matter.
         // Deleting an index does not move any other indices around
         for(let index of indices) {
-            await this.database.deleteTrack(this.cache.nwjsTracks[index].systemIndex);
+            await this.database!.deleteTrack(this.cache!.nwjsTracks[index].systemIndex);
         }
         await this.flush();
         this.cache = null;
@@ -263,17 +260,17 @@ export class NetworkWMService extends NetMDService {
         // Assure the user cannot move this track beyond the limits of its region.
         if(!this.cache) await this.listContent();
         // Find top and bottom of this album.
-        let thisTrack = this.cache.nwjsTracks[src]!;
-        const isInThisAlbum = (index: number) => this.cache.nwjsTracks[index]?.album === thisTrack.album && this.cache.nwjsTracks[index]?.artist === thisTrack.artist;
+        let thisTrack = this.cache!.nwjsTracks[src]!;
+        const isInThisAlbum = (index: number) => this.cache!.nwjsTracks[index]?.album === thisTrack.album && this.cache!.nwjsTracks[index]?.artist === thisTrack.artist;
         let bottomIndex = src, topIndex = src;
         while(isInThisAlbum(bottomIndex - 1)) bottomIndex--;
         while(isInThisAlbum(topIndex + 1)) topIndex++;
         // Clamp dst
         dst = Math.max(bottomIndex, Math.min(topIndex, dst));
-        this.cache.nwjsTracks.splice(dst, 0, ...this.cache.nwjsTracks.splice(src, 1));
+        this.cache!.nwjsTracks.splice(dst, 0, ...this.cache!.nwjsTracks.splice(src, 1));
         // Rebuild track indices
         for(let i = bottomIndex; i<=topIndex; i++) {
-            this.cache.nwjsTracks[i].trackNumber = i - bottomIndex;
+            this.cache!.nwjsTracks[i].trackNumber = i - bottomIndex;
         }
         this.cache = null;
         this.dirty = true;
@@ -281,11 +278,11 @@ export class NetworkWMService extends NetMDService {
 
     wipeDisc(): Promise<void> {
         this.cache = null;
-        return this.database.eraseAll();
+        return this.database!.eraseAll();
     }
 
     async flush(): Promise<void> {
-        await this.database.flushUpdates();
+        await this.database!.flushUpdates();
         this.dirty = false;
         this.cache = null;
     }
@@ -302,7 +299,7 @@ export class NetworkWMService extends NetMDService {
         // NW files are stored with known decryption keys.
         // Simply invoke FS functions to read the file back...
         if(!this.cache) await this.listContent();
-        const fsEntry = await this.database.database.filesystem.open(resolvePathFromGlobalIndex(this.cache.nwjsTracks![index].systemIndex), 'ro');
+        const fsEntry = await this.database!.database.filesystem.open(resolvePathFromGlobalIndex(this.cache!.nwjsTracks![index].systemIndex), 'ro');
         if(!fsEntry) throw new Error("Cannot read audio file!");
         let buffer = new Uint8Array(fsEntry.length);
         for(let cursor = 0; cursor < buffer.length; cursor += Math.min(4096, buffer.length - cursor)) {
@@ -311,11 +308,11 @@ export class NetworkWMService extends NetMDService {
         }
         // Unless MP3s are being processed
         let extension;
-        if(this.cache.nwjsTracks![index].codecName === "MP3") {
+        if(this.cache!.nwjsTracks![index].codecName === "MP3") {
             // MP3s need to be decrypted
-            buffer = decryptMP3(buffer, this.cache.nwjsTracks![index].systemIndex, this.database.mp3DeviceKey!);
+            buffer = decryptMP3(buffer, this.cache!.nwjsTracks![index].systemIndex, this.database!.mp3DeviceKey!);
             extension = "mp3";
-        } else if(this.cache.nwjsTracks![index].codecName === "PCM") {
+        } else if(this.cache!.nwjsTracks![index].codecName === "PCM") {
             extension = "wav";
         } else {
             extension = "oma";
@@ -337,12 +334,12 @@ export class NetworkWMService extends NetMDService {
         }
         const [artist, album] = newTitle.split("-").map(e => e.trim());
         // groupIndex is the index of the first track in group.
-        const firstTrack = {...this.cache.nwjsTracks[groupIndex]};
+        const firstTrack = {...this.cache!.nwjsTracks[groupIndex]};
         let currentTrack = firstTrack;
         let currentIndex = groupIndex;
         while(currentTrack?.album === firstTrack.album && currentTrack?.artist === firstTrack.artist) {
-            await this.database.renameTrack(currentTrack.systemIndex, { artist, album, title: currentTrack.title, genre: currentTrack.genre, trackDuration: currentTrack.trackDuration, trackNumber: currentTrack.trackNumber});
-            currentTrack = this.cache.nwjsTracks[++currentIndex];
+            await this.database!.renameTrack(currentTrack.systemIndex, { artist, album, title: currentTrack.title, genre: currentTrack.genre, trackDuration: currentTrack.trackDuration, trackNumber: currentTrack.trackNumber});
+            currentTrack = this.cache!.nwjsTracks[++currentIndex];
         }
         await this.flush();
         this.cache = null;
