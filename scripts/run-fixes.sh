@@ -1,5 +1,8 @@
 #!/bin/bash
 
+set -euo pipefail
+IFS=$'\n\t'
+
 if [ "$(uname)" == "Linux" ]; then
     SED=sed
 elif [ "$(uname)" == "Darwin" ]; then
