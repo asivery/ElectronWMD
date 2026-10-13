@@ -8,7 +8,7 @@
     "start": "npm run build && NODE_ENV=development electron ./dist/main.js",
     "pack": "npm run build && electron-builder --dir",
     "dist": "./scripts/prepare-cross-compilation-modules.sh && npm run build && electron-builder --publish never -wl --x64",
-    "dist-mac": "./scripts/prepare-cross-compilation-modules.sh && npm run build && electron-builder --publish never -m --x64 && electron-builder --publish never -m --arm64"
+    "dist-mac": "./scripts/prepare-cross-compilation-modules.sh && ./scripts/build-renderer.sh && tsc && electron-builder --publish never -m --x64 && electron-builder --publish never -m --arm64"
   },
   "build": {
     "directories": {
